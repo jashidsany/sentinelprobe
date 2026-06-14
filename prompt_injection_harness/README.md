@@ -95,6 +95,12 @@ Run indirect prompt injection against Claude Code:
 sentinelprobe claude-code --suite indirect --mutations
 ```
 
+Run file-based indirect prompt injection against Claude Code:
+
+```bash
+sentinelprobe claude-code --suite indirect --mutations --agent-files --verbose --only-findings
+```
+
 Watch prompts and responses during a scan:
 
 ```bash
@@ -111,6 +117,8 @@ sentinelprobe claude-code --suite indirect --mutations --verbose --only-findings
 ```
 
 `claude-code` shows compact per-case status by default unless `--quiet` is used. Add `--verbose` to show prompts and responses, `--only-findings` to hide passing cases, or `--show-findings` to print full finding details during the run. `--trace-file` always writes the full untruncated prompt and response log.
+
+The default Claude Code indirect run is inline retrieved-content simulation: test documents are embedded in the prompt. Add `--agent-files` to write test documents into a disposable sandbox and ask Claude Code to inspect those files. That mode is closer to coding-agent repo/file poisoning tests and uses Claude Code agent-sandbox behavior.
 
 Show copy-ready examples:
 
@@ -368,7 +376,13 @@ sentinelprobe claude-code --suite direct-advanced
 
 The wrapper uses `claude --print --output-format json --no-session-persistence` and disables tools in `response-only` mode. This is the recommended first pass because it tests whether Claude follows malicious retrieved instructions without letting it edit files or run commands.
 
-For later sandboxed tool-behavior tests, use `--mode agent-sandbox` and point `--workdir` at a disposable test directory.
+For file-based indirect prompt injection against Claude Code CLI:
+
+```bash
+sentinelprobe claude-code --suite indirect --mutations --agent-files --verbose --only-findings
+```
+
+This writes each case into a disposable per-case directory under the Claude Code wrapper workdir and asks Claude Code to inspect `test_documents/`. Use this mode for coding-agent file/source handling checks. Use the default indirect run for inline retrieved-content checks.
 
 ## Scoring Notes
 

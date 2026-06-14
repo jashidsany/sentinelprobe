@@ -105,6 +105,11 @@ def create_parser() -> argparse.ArgumentParser:
     claude_code.add_argument("--budget", default="0.25", help="Max Claude Code budget in USD. Default: 0.25.")
     claude_code.add_argument("--mode", choices=["response-only", "agent-sandbox"], default="response-only")
     claude_code.add_argument("--workdir", help="Disposable workdir for --mode agent-sandbox.")
+    claude_code.add_argument(
+        "--agent-files",
+        action="store_true",
+        help="Write case documents into a disposable sandbox and ask Claude Code to inspect files. Uses agent-sandbox mode.",
+    )
     claude_code.add_argument("--timeout", type=int, default=180)
     claude_code.add_argument("--report", help="Report path. Defaults to reports/claude-code_<suite>_<timestamp>.json.")
     claude_code.add_argument("--mutations", action="store_true", help="Add deterministic variants for cases that define mutations.")
@@ -442,6 +447,12 @@ def init_project(output: Path, force: bool) -> None:
                     "",
                     "```bash",
                     "sentinelprobe claude-code --suite direct",
+                    "```",
+                    "",
+                    "Claude Code file-based indirect run:",
+                    "",
+                    "```bash",
+                    "sentinelprobe claude-code --suite indirect --mutations --agent-files --verbose --only-findings",
                     "```",
                     "",
                 ]
@@ -885,6 +896,9 @@ def print_examples(target: str) -> None:
             "",
             "Claude Code advanced direct prompt injection:",
             "sentinelprobe claude-code --suite direct-advanced",
+            "",
+            "Claude Code file-based indirect prompt injection:",
+            "sentinelprobe claude-code --suite indirect --mutations --agent-files --verbose --only-findings",
         ],
         "mock": [
             "Local mock baseline:",
@@ -896,6 +910,9 @@ def print_examples(target: str) -> None:
             "",
             "Claude Code indirect prompt injection with generated variants:",
             "sentinelprobe claude-code --suite indirect --mutations --verbose --only-findings",
+            "",
+            "Claude Code file-based indirect prompt injection:",
+            "sentinelprobe claude-code --suite indirect --mutations --agent-files --verbose --only-findings",
         ],
         "http": [
             "Approved HTTP endpoint:",
@@ -1249,15 +1266,18 @@ def trace_case_response(case: dict[str, Any], result: TargetResult, limit: int, 
 
 
 def claude_code_command(args: argparse.Namespace) -> str:
+    mode = "agent-sandbox" if getattr(args, "agent_files", False) and args.mode == "response-only" else args.mode
     command = [
         "claude-code-wrapper",
         "--mode",
-        args.mode,
+        mode,
         "--model",
         args.model,
         "--max-budget-usd",
         str(args.budget),
     ]
+    if getattr(args, "agent_files", False):
+        command.extend(["--input-mode", "files"])
     if args.workdir:
         command.extend(["--workdir", args.workdir])
     return shlex.join(command)
@@ -1283,7 +1303,7 @@ def run_claude_code(args: argparse.Namespace) -> int:
         trace=args.trace,
         trace_limit=args.trace_limit,
         trace_file=args.trace_file,
-        cases_name=f"claude-code_{args.suite}{'_mutations' if args.mutations else ''}",
+        cases_name=f"claude-code_{args.suite}{'_mutations' if args.mutations else ''}{'_agent-files' if args.agent_files else ''}",
     )
     return run_cases(run_args, cases)
 
