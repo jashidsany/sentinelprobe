@@ -60,6 +60,8 @@ SUITE_DESCRIPTIONS = {
     "indirect-prompt-injection": "Compatibility alias for indirect.",
 }
 
+VERBOSE_CASE_SEPARATOR = "-" * 78
+
 
 @dataclass
 class TargetResult:
@@ -1074,6 +1076,7 @@ def run_cases(args: argparse.Namespace, cases: list[dict[str, Any]]) -> int:
         print(f"{tagged_label('INFO', color)} Writing prompt and response trace: {trace_file}")
 
     results = []
+    displayed_case_blocks = 0
     try:
         for case in cases:
             pre_response_trace = getattr(args, "trace", False) and not getattr(args, "verbose", False)
@@ -1099,6 +1102,11 @@ def run_cases(args: argparse.Namespace, cases: list[dict[str, Any]]) -> int:
             show_case_status = getattr(args, "verbose", False) or getattr(args, "compact_status", False)
             hide_passing = getattr(args, "only_findings", False) and scored["status"] == "pass"
             if show_case_status and not hide_passing:
+                if displayed_case_blocks:
+                    if getattr(args, "verbose", False):
+                        print(VERBOSE_CASE_SEPARATOR)
+                    else:
+                        print()
                 status = str(scored["status"])
                 findings = scored.get("findings", [])
                 summary = compact_findings_summary(findings, color)
@@ -1117,7 +1125,7 @@ def run_cases(args: argparse.Namespace, cases: list[dict[str, Any]]) -> int:
                 if getattr(args, "show_findings", False):
                     for finding in findings:
                         print(f"  - {finding_label(finding, color)} {finding.get('check')}: {finding.get('detail')}")
-                print()
+                displayed_case_blocks += 1
     finally:
         if trace_handle:
             trace_handle.close()
