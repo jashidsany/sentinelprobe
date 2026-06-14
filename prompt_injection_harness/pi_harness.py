@@ -66,6 +66,9 @@ SUITE_DESCRIPTIONS = {
 }
 
 VERBOSE_CASE_SEPARATOR = "-" * 78
+TEXT_RESPONSE_KEYS = ("answer", "result", "response", "text", "message", "content", "output")
+BROWSER_REQUIRED_KEYS = ("base_url", "profile_dir", "prompt_selector", "submit_selector", "response_selector")
+BUSINESS_SECTION_PREFIXES = ("business content:", "business rules:")
 
 
 @dataclass
@@ -551,33 +554,11 @@ def call_mock(case: dict[str, Any], timeout: int) -> TargetResult:
         elapsed_ms = int((time.monotonic() - start) * 1000)
         return TargetResult(ok=True, text=str(mock_response), elapsed_ms=elapsed_ms)
 
-    docs = case.get("documents", [])
     business_lines: list[str] = []
     citations: list[str] = []
-    for doc in docs:
-        title = str(doc.get("title", "Untitled"))
-        citations.append(title)
-        content = str(doc.get("content", ""))
-        capture = False
-        for line in content.splitlines():
-            stripped = line.strip()
-            if stripped.lower().startswith(("business content:", "business rules:")):
-                capture = True
-                continue
-            if capture and stripped:
-                business_lines.append(stripped.lstrip("- "))
-    for file_item in case.get("files", []) or []:
-        path = str(file_item.get("path", "untitled.txt"))
-        citations.append(path)
-        content = str(file_item.get("content", ""))
-        capture = False
-        for line in content.splitlines():
-            stripped = line.strip()
-            if stripped.lower().startswith(("business content:", "business rules:")):
-                capture = True
-                continue
-            if capture and stripped:
-                business_lines.append(stripped.lstrip("- "))
+    for label, content in iter_case_sources(case):
+        citations.append(label)
+        business_lines.extend(extract_business_lines(content))
     if not business_lines:
         business_lines = ["No business content found."]
     text = " ".join(business_lines)
@@ -638,8 +619,7 @@ def call_browser(case: dict[str, Any], config: dict[str, Any], headed: bool, slo
             elapsed_ms=0,
         )
 
-    required = ["base_url", "profile_dir", "prompt_selector", "submit_selector", "response_selector"]
-    missing = [key for key in required if not config.get(key)]
+    missing = missing_browser_config_keys(config)
     if missing:
         return TargetResult(ok=False, text="", error=f"Browser config missing: {', '.join(missing)}", elapsed_ms=0)
 
@@ -691,16 +671,14 @@ def call_browser(case: dict[str, Any], config: dict[str, Any], headed: bool, slo
 
 def browser_prompt_for_case(case: dict[str, Any], config: dict[str, Any]) -> str:
     if config.get("send_documents_inline", True):
-        docs = []
-        for doc in case.get("documents", []):
-            docs.append(f"Source title: {doc.get('title', 'Untitled')}\n{doc.get('content', '')}")
-        if not docs:
+        sources = [f"Source: {label}\n{content}" for label, content in iter_case_sources(case)]
+        if not sources:
             return str(case.get("user_prompt", "")).strip()
-        joined_docs = "\n\n---\n\n".join(docs)
+        joined_sources = "\n\n---\n\n".join(sources)
         return (
             f"{case.get('user_prompt', '')}\n\n"
-            "Use only the following approved test documents for this authorized security test.\n\n"
-            f"{joined_docs}"
+            "Use only the following approved test sources for this authorized security test.\n\n"
+            f"{joined_sources}"
         ).strip()
     return str(case.get("user_prompt", ""))
 
@@ -766,12 +744,34 @@ def extract_text(raw: str) -> str:
     if isinstance(data, str):
         return data
     if isinstance(data, dict):
-        for key in ("answer", "result", "response", "text", "message", "content", "output"):
+        for key in TEXT_RESPONSE_KEYS:
             value = data.get(key)
             if isinstance(value, str):
                 return value
         return json.dumps(data, ensure_ascii=False, sort_keys=True)
     return json.dumps(data, ensure_ascii=False)
+
+
+def iter_case_sources(case: dict[str, Any]) -> list[tuple[str, str]]:
+    sources: list[tuple[str, str]] = []
+    for document in case.get("documents", []) or []:
+        sources.append((str(document.get("title", "Untitled")), str(document.get("content", ""))))
+    for file_item in case.get("files", []) or []:
+        sources.append((str(file_item.get("path", "untitled.txt")), str(file_item.get("content", ""))))
+    return sources
+
+
+def extract_business_lines(content: str) -> list[str]:
+    lines: list[str] = []
+    capture = False
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.lower().startswith(BUSINESS_SECTION_PREFIXES):
+            capture = True
+            continue
+        if capture and stripped:
+            lines.append(stripped.lstrip("- "))
+    return lines
 
 
 def score_case(case: dict[str, Any], result: TargetResult) -> dict[str, Any]:
@@ -820,7 +820,7 @@ def score_case(case: dict[str, Any], result: TargetResult) -> dict[str, Any]:
                 findings.append({"check": "missing_required_regex", "severity": "fail", "detail": str(pattern)})
 
     if expectations.get("require_citation"):
-        terms = expectations.get("citation_terms") or [doc.get("title", "") for doc in case.get("documents", [])]
+        terms = expectations.get("citation_terms") or [label for label, _content in iter_case_sources(case)]
         if not any(str(term).lower() in text.lower() for term in terms if str(term).strip()):
             findings.append({"check": "missing_citation", "severity": "fail", "detail": ", ".join(map(str, terms))})
 
@@ -1304,14 +1304,28 @@ def validate_cases(cases: list[dict[str, Any]]) -> list[str]:
         if not isinstance(case.get("expectations", {}), dict):
             errors.append(f"{case_id or index}: expectations must be an object")
         expectations = case.get("expectations", {}) or {}
-        if isinstance(expectations, dict) and "required_regex" in expectations and not isinstance(expectations.get("required_regex"), list):
-            errors.append(f"{case_id or index}: required_regex must be a list")
+        if isinstance(expectations, dict):
+            for field in (
+                "warning_patterns",
+                "warning_regex",
+                "forbidden_patterns",
+                "forbidden_regex",
+                "required_patterns",
+                "required_regex",
+                "citation_terms",
+            ):
+                if field in expectations and not isinstance(expectations.get(field), list):
+                    errors.append(f"{case_id or index}: {field} must be a list")
     return errors
 
 
 def is_safe_relative_path(value: str) -> bool:
     path = Path(value)
     return not path.is_absolute() and ".." not in path.parts and str(path).strip() not in {"", "."}
+
+
+def missing_browser_config_keys(config: dict[str, Any]) -> list[str]:
+    return [key for key in BROWSER_REQUIRED_KEYS if not config.get(key)]
 
 
 def status_bar(label: str, value: int, total: int, width: int = 28, color: bool | None = None) -> str:
@@ -1432,8 +1446,7 @@ def run_doctor(target: str = "all", browser_config: str = "", workdir: str = "")
         if config_path.exists():
             try:
                 config = load_json(config_path)
-                required = ["base_url", "profile_dir", "prompt_selector", "submit_selector", "response_selector"]
-                missing = [key for key in required if not config.get(key)]
+                missing = missing_browser_config_keys(config)
                 if missing:
                     add_check(checks, "warn", "Browser config", f"{config_path} missing values: {', '.join(missing)}")
                 else:
@@ -1759,14 +1772,7 @@ def run_cases(args: argparse.Namespace, cases: list[dict[str, Any]]) -> int:
                 trace_case_start(case, args.provider, browser_config, int(getattr(args, "trace_limit", 4000) or 0), sys.stdout, color)
             if trace_handle:
                 trace_case_start(case, args.provider, browser_config, 0, trace_handle, False)
-            if args.provider == "mock":
-                target_result = call_mock(case, args.timeout)
-            elif args.provider == "http":
-                target_result = call_http(case, args.endpoint, headers, args.timeout)
-            elif args.provider == "browser":
-                target_result = call_browser(case, browser_config, args.headed, args.slow_mo, args.timeout)
-            else:
-                target_result = call_command(case, args.command, args.timeout)
+            target_result = call_target(case, args, headers, browser_config)
             if pre_response_trace:
                 trace_case_response(case, target_result, int(getattr(args, "trace_limit", 4000) or 0), sys.stdout, color)
             if trace_handle:
@@ -1807,15 +1813,7 @@ def run_cases(args: argparse.Namespace, cases: list[dict[str, Any]]) -> int:
 
     cases_name = getattr(args, "cases_name", None) or getattr(args, "cases", "cases")
     report_path = Path(args.report) if args.report else default_report_path(args.provider, str(cases_name))
-    metadata = {}
-    if getattr(args, "trace_file", None):
-        metadata["trace_file"] = str(args.trace_file)
-    if getattr(args, "cases_name", None):
-        metadata["cases_name"] = str(args.cases_name)
-    if getattr(args, "limit", None):
-        metadata["limit"] = int(args.limit)
-    if getattr(args, "original_case_count", None):
-        metadata["original_case_count"] = int(args.original_case_count)
+    metadata = run_metadata(args)
     write_report(report_path, args.provider, results, metadata)
     html_report_path = resolve_html_report_path(getattr(args, "html_report", None), report_path)
     if html_report_path:
@@ -1835,6 +1833,36 @@ def run_cases(args: argparse.Namespace, cases: list[dict[str, Any]]) -> int:
     if failed or (review and args.fail_on_review):
         return 1
     return 0
+
+
+def call_target(
+    case: dict[str, Any],
+    args: argparse.Namespace,
+    headers: dict[str, str],
+    browser_config: dict[str, Any],
+) -> TargetResult:
+    if args.provider == "mock":
+        return call_mock(case, args.timeout)
+    if args.provider == "http":
+        return call_http(case, args.endpoint, headers, args.timeout)
+    if args.provider == "browser":
+        return call_browser(case, browser_config, args.headed, args.slow_mo, args.timeout)
+    return call_command(case, args.command, args.timeout)
+
+
+def run_metadata(args: argparse.Namespace) -> dict[str, Any]:
+    fields = {
+        "trace_file": getattr(args, "trace_file", None),
+        "cases_name": getattr(args, "cases_name", None),
+        "limit": getattr(args, "limit", None),
+        "original_case_count": getattr(args, "original_case_count", None),
+    }
+    metadata: dict[str, Any] = {}
+    for key, value in fields.items():
+        if value is None:
+            continue
+        metadata[key] = int(value) if key in {"limit", "original_case_count"} else str(value)
+    return metadata
 
 
 def limit_trace_text(text: str, limit: int) -> str:

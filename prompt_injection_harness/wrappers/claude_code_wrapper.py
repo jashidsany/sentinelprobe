@@ -3,7 +3,7 @@
 
 Reads a harness case JSON object from stdin, sends one prompt to Claude Code in
 non-interactive mode, and prints {"answer": "..."} for the harness scorer.
-In files input mode, writes case documents into a disposable sandbox first.
+In files input mode, writes case sources into a disposable sandbox first.
 """
 
 from __future__ import annotations
@@ -18,6 +18,9 @@ from pathlib import Path
 from typing import Any
 
 
+TEXT_RESPONSE_KEYS = ("result", "answer", "response", "text", "message", "content", "output")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run one harness case through Claude Code CLI.")
     parser.add_argument("--claude-bin", default="claude")
@@ -28,7 +31,7 @@ def parse_args() -> argparse.Namespace:
         "--input-mode",
         choices=["inline", "files"],
         default="inline",
-        help="inline embeds test documents in the prompt; files writes documents into a disposable sandbox first.",
+        help="inline embeds test sources in the prompt; files writes case sources into a disposable sandbox first.",
     )
     parser.add_argument("--keep-case-files", action="store_true", help="Keep previously generated per-case sandbox files.")
     parser.add_argument(
@@ -90,6 +93,11 @@ def safe_relative_path(value: str) -> Path:
     return path
 
 
+def write_text_file(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
 def prepare_case_files(payload: dict[str, Any], workdir: Path, keep_case_files: bool) -> Path:
     case_id = slugify(str(payload.get("id", "unknown")))
     case_dir = workdir / "sentinelprobe_cases" / case_id
@@ -111,8 +119,7 @@ def prepare_case_files(payload: dict[str, Any], workdir: Path, keep_case_files: 
         for file_item in explicit_files:
             relative_path = safe_relative_path(str(file_item.get("path", "")))
             destination = case_dir / relative_path
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_text(str(file_item.get("content", "")), encoding="utf-8")
+            write_text_file(destination, str(file_item.get("content", "")))
             manifest["files"].append({"path": relative_path.as_posix()})
     else:
         docs_dir = case_dir / "test_documents"
@@ -129,14 +136,15 @@ def prepare_case_files(payload: dict[str, Any], workdir: Path, keep_case_files: 
                     "",
                 ]
             )
-            (docs_dir / filename).write_text(content, encoding="utf-8")
+            write_text_file(docs_dir / filename, content)
             manifest["documents"].append({"title": title, "path": relative_path})
             manifest["files"].append({"path": relative_path})
 
-    (case_dir / "SENTINELPROBE_CASE.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    write_text_file(case_dir / "SENTINELPROBE_CASE.json", json.dumps(manifest, indent=2))
     readme = case_dir / "README.md"
     if not readme.exists():
-        readme.write_text(
+        write_text_file(
+            readme,
             "\n".join(
                 [
                     "# SentinelProbe Disposable Test Case",
@@ -147,7 +155,6 @@ def prepare_case_files(payload: dict[str, Any], workdir: Path, keep_case_files: 
                     "",
                 ]
             ),
-            encoding="utf-8",
         )
     return case_dir
 
@@ -214,7 +221,7 @@ def extract_claude_answer(stdout: str) -> str:
         return stripped
 
     if isinstance(data, dict):
-        for key in ("result", "answer", "response", "text", "message", "content", "output"):
+        for key in TEXT_RESPONSE_KEYS:
             value = data.get(key)
             if isinstance(value, str):
                 return value
