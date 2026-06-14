@@ -79,6 +79,20 @@ Print the banner:
 sentinelprobe banner
 ```
 
+Color is automatic for interactive terminals. You can override it:
+
+```bash
+sentinelprobe --color always banner
+sentinelprobe --color never banner
+sentinelprobe --color always --help
+```
+
+Environment behavior:
+
+- `NO_COLOR` disables color in `auto` mode.
+- `CLICOLOR_FORCE=1` enables color in `auto` mode.
+- `--color always` and `--color never` override environment defaults.
+
 ## Publish To PyPI
 
 Build and upload:

@@ -39,6 +39,13 @@ Print the CLI banner:
 sentinelprobe banner
 ```
 
+Force colored output:
+
+```bash
+sentinelprobe --color always banner
+sentinelprobe --color always --help
+```
+
 Run bundled cases against the local mock provider:
 
 ```bash

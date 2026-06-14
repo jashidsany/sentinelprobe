@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -32,7 +33,11 @@ class TargetResult:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run authorized AI prompt-injection and agent-boundary tests.")
+    parser = argparse.ArgumentParser(
+        description=banner_text(color=use_color()) + "\n\nRun authorized AI prompt-injection and agent-boundary tests.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--color", choices=["auto", "always", "never"], default="auto", help="Control ANSI color output.")
     subparsers = parser.add_subparsers(dest="command_name", required=True)
 
     run = subparsers.add_parser("run", help="Run test cases.")
@@ -73,8 +78,34 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def banner_text() -> str:
-    return r"""
+def color_mode_from_argv() -> str:
+    for index, value in enumerate(sys.argv):
+        if value == "--color" and index + 1 < len(sys.argv):
+            return sys.argv[index + 1]
+        if value.startswith("--color="):
+            return value.split("=", 1)[1]
+    return "auto"
+
+
+def use_color(mode: str | None = None) -> bool:
+    mode = mode or color_mode_from_argv()
+    if mode == "always":
+        return True
+    if mode == "never":
+        return False
+    if os.environ.get("CLICOLOR_FORCE") == "1":
+        return True
+    if os.environ.get("NO_COLOR"):
+        return False
+    return sys.stdout.isatty()
+
+
+def colorize(text: str, code: str) -> str:
+    return f"\033[{code}m{text}\033[0m"
+
+
+def banner_text(color: bool = False) -> str:
+    art = r"""
   ____             _   _            _ ____            _
  / ___|  ___ _ __ | |_(_)_ __   ___| |  _ \ _ __ ___ | |__   ___
  \___ \ / _ \ '_ \| __| | '_ \ / _ \ | |_) | '__/ _ \| '_ \ / _ \
@@ -83,10 +114,16 @@ def banner_text() -> str:
 
  Authorized AI prompt-injection and agent-boundary testing
 """.strip("\n")
+    if not color:
+        return art
+    lines = art.splitlines()
+    art_lines = "\n".join(colorize(line, "36;1") for line in lines[:5])
+    tagline = colorize(lines[6], "32;1") if len(lines) > 6 else ""
+    return f"{art_lines}\n\n{tagline}"
 
 
-def print_banner() -> None:
-    print(banner_text())
+def print_banner(color_mode: str | None = None) -> None:
+    print(banner_text(color=use_color(color_mode)))
 
 
 def package_root() -> Path:
@@ -613,8 +650,8 @@ def choose(prompt: str, options: list[tuple[str, str]], default_index: int = 0) 
         print("Enter a listed number.")
 
 
-def run_wizard() -> int:
-    print_banner()
+def run_wizard(color_mode: str = "auto") -> int:
+    print_banner(color_mode)
     print("\nSentinelProbe Wizard")
     print("Use only approved systems, accounts, and test data.\n")
 
@@ -724,11 +761,11 @@ def main() -> int:
     args = parse_args()
 
     if args.command_name == "banner":
-        print_banner()
+        print_banner(args.color)
         return 0
 
     if args.command_name == "wizard":
-        return run_wizard()
+        return run_wizard(args.color)
 
     if args.command_name == "init-project":
         init_project(Path(args.output), args.force)
