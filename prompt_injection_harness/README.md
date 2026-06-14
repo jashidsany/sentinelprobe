@@ -83,11 +83,24 @@ Run the advanced direct suite against Claude Code:
 sentinelprobe claude-code --suite direct-advanced
 ```
 
+Run indirect prompt injection tests with generated variants:
+
+```bash
+sentinelprobe run --cases indirect --mutations --provider mock --verbose
+```
+
+Run indirect prompt injection against Claude Code:
+
+```bash
+sentinelprobe claude-code --suite indirect --mutations
+```
+
 Show copy-ready examples:
 
 ```bash
 sentinelprobe examples
 sentinelprobe examples claude-code
+sentinelprobe examples indirect
 ```
 
 Direct suite aliases:
@@ -95,7 +108,10 @@ Direct suite aliases:
 - `direct-basic`: 10 basic direct prompt injection cases.
 - `direct-advanced`: advanced direct prompt injection cases covering task-preserving injection, policy laundering, fake audit requirements, fake developer messages, obfuscation, encoded payloads, hidden fields, context switching, transcript bait, tool-use bait, instruction conflicts, and safe-task completion after refusal.
 - `direct`: both `direct-basic` and `direct-advanced`.
+- `indirect`: retrieved-content prompt injection cases, including existing code-generation and secret-boundary cases.
 - `builtin`: all bundled cases.
+
+Add `--mutations` to generate deterministic case variants for suites that define them. Current mutation styles wrap prompts or retrieved content in urgent wording, Markdown quotes, JSON fields, simulated transcripts, and HTML comments.
 
 Interactive mode:
 
@@ -176,6 +192,8 @@ Current aliases:
 - `direct-advanced`: advanced direct prompt injection cases.
 - `direct`: both direct basic and direct advanced cases.
 - `direct-prompt-injection`: compatibility alias for `direct`.
+- `indirect`: retrieved-content prompt injection cases.
+- `indirect-prompt-injection`: compatibility alias for `indirect`.
 
 The direct suite covers:
 
@@ -202,6 +220,24 @@ The advanced direct suite covers:
 - simulated transcript and tool-use bait
 - multi-instruction conflicts
 - safe-task completion after refusal
+
+The indirect suite covers:
+
+- malicious instructions in retrieved documents
+- hidden Markdown and HTML instructions
+- fake system, developer, audit, and policy authority in sources
+- tool-use bait in wiki content
+- JSON hidden fields and footnote payloads
+- simulated transcript payloads
+- cross-document authority conflicts
+- fake secret disclosure from retrieved content
+
+Mutation expansion is opt-in:
+
+```bash
+sentinelprobe validate --cases indirect --mutations
+sentinelprobe run --cases indirect --mutations --provider mock --verbose
+```
 
 ### Mock provider
 

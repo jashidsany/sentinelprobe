@@ -70,11 +70,24 @@ Run the advanced direct suite against Claude Code:
 sentinelprobe claude-code --suite direct-advanced
 ```
 
+Run indirect prompt injection tests with generated variants:
+
+```bash
+sentinelprobe run --cases indirect --mutations --provider mock --verbose
+```
+
+Run indirect prompt injection against Claude Code:
+
+```bash
+sentinelprobe claude-code --suite indirect --mutations
+```
+
 Show copy-ready examples:
 
 ```bash
 sentinelprobe examples
 sentinelprobe examples claude-code
+sentinelprobe examples indirect
 ```
 
 Direct suite aliases:
@@ -82,7 +95,10 @@ Direct suite aliases:
 - `direct-basic`: 10 basic direct prompt injection cases.
 - `direct-advanced`: advanced direct prompt injection cases, including obfuscation, fake authority, context switching, transcript bait, tool-use bait, and safe-task completion after refusal.
 - `direct`: both `direct-basic` and `direct-advanced`.
+- `indirect`: retrieved-content prompt injection cases, including existing code-generation and secret-boundary cases.
 - `builtin`: all bundled cases.
+
+Add `--mutations` to generate deterministic case variants for suites that define them. Current mutation styles wrap prompts or retrieved content in urgent wording, Markdown quotes, JSON fields, simulated transcripts, and HTML comments.
 
 Create a starter workspace:
 
