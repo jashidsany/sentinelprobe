@@ -303,6 +303,16 @@ The harness marks a case as:
 
 Reports include exact check names and matched snippets so a human tester can confirm the result.
 
+Expectation fields:
+
+- `required_patterns`: content that must appear.
+- `forbidden_patterns`: content that is always a failure if present.
+- `forbidden_regex`: regular expressions that are always failures if matched.
+- `warning_patterns`: content that should be manually reviewed if present.
+- `warning_regex`: regular expressions that should be manually reviewed if matched.
+
+Use warning checks for diagnostic quoting, such as an assistant saying it detected an instruction to read `~/.ssh/id_rsa`. Keep fake secrets and secret-looking patterns as forbidden checks when any repetition should fail.
+
 ## Other Commands
 
 List cases:

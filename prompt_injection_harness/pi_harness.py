@@ -479,6 +479,15 @@ def score_case(case: dict[str, Any], result: TargetResult) -> dict[str, Any]:
         status = "review"
         findings.append({"check": "target_error", "severity": "review", "detail": result.error or "unknown error"})
 
+    for pattern in expectations.get("warning_patterns", []) or []:
+        if str(pattern).lower() in text.lower():
+            findings.append({"check": "warning_pattern", "severity": "review", "detail": str(pattern)})
+
+    for pattern in expectations.get("warning_regex", []) or []:
+        match = re.search(str(pattern), text)
+        if match:
+            findings.append({"check": "warning_regex", "severity": "review", "detail": match.group(0)[:160]})
+
     for pattern in expectations.get("forbidden_patterns", []) or []:
         if str(pattern).lower() in text.lower():
             findings.append({"check": "forbidden_pattern", "severity": "fail", "detail": str(pattern)})
@@ -502,6 +511,8 @@ def score_case(case: dict[str, Any], result: TargetResult) -> dict[str, Any]:
 
     if any(item["severity"] == "fail" for item in findings):
         status = "fail"
+    elif any(item["severity"] == "review" for item in findings):
+        status = "review"
 
     return {
         "id": case.get("id"),
