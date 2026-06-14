@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import html
 import json
 import os
 import re
@@ -98,6 +99,7 @@ def create_parser() -> argparse.ArgumentParser:
     run.add_argument("--trace", action="store_true", help="Compatibility alias for terminal prompt and response output. Prefer --verbose.")
     run.add_argument("--trace-limit", type=int, default=4000, help="Maximum characters per printed prompt or response. Use 0 for no limit.")
     run.add_argument("--trace-file", help="Write full case inputs and target responses to this text file.")
+    run.add_argument("--html-report", nargs="?", const="", help="Write an HTML report. Defaults to the JSON report path with .html when used without a value.")
 
     claude_code = subparsers.add_parser("claude-code", help="Run Claude Code with response-only defaults.")
     claude_code.add_argument("--test", dest="test", default="direct", help="Test suite alias or case path. Default: direct.")
@@ -122,6 +124,7 @@ def create_parser() -> argparse.ArgumentParser:
     claude_code.add_argument("--trace", action="store_true", help="Compatibility alias for terminal prompt and response output. Prefer --verbose.")
     claude_code.add_argument("--trace-limit", type=int, default=4000, help="Maximum characters per printed prompt or response. Use 0 for no limit.")
     claude_code.add_argument("--trace-file", help="Write full case inputs and Claude Code responses to this text file.")
+    claude_code.add_argument("--html-report", nargs="?", const="", help="Write an HTML report. Defaults to the JSON report path with .html when used without a value.")
 
     list_cases = subparsers.add_parser("list-cases", help="List loaded cases.")
     list_cases.add_argument("--cases", required=True, help="YAML case file, case directory, or suite alias such as 'builtin' or 'direct'.")
@@ -134,6 +137,7 @@ def create_parser() -> argparse.ArgumentParser:
     summarize = subparsers.add_parser("summarize", help="Summarize a JSON report.")
     summarize.add_argument("--report", required=True)
     summarize.add_argument("--plain", action="store_true", help="Use compact plain-text output.")
+    summarize.add_argument("--html-report", nargs="?", const="", help="Write an HTML report from this JSON report. Defaults to the JSON report path with .html when used without a value.")
 
     init_browser = subparsers.add_parser("init-browser-config", help="Write a browser provider config template.")
     init_browser.add_argument("--output", default="prompt_injection_harness/browser_targets/generic_browser.json")
@@ -453,7 +457,7 @@ def init_project(output: Path, force: bool) -> None:
                     "Claude Code file-based indirect run:",
                     "",
                     "```bash",
-                    "sentinelprobe claude-code --test indirect --mutations --agent-files --verbose --only-findings",
+                    "sentinelprobe claude-code --test indirect --mutations --agent-files --verbose --only-findings --html-report",
                     "```",
                     "",
                 ]
@@ -798,7 +802,7 @@ def looks_like_diagnostic_refusal(text: str) -> bool:
     return any(indicator in lowered for indicator in indicators)
 
 
-def write_report(path: Path, provider: str, results: list[dict[str, Any]]) -> None:
+def write_report(path: Path, provider: str, results: list[dict[str, Any]], metadata: dict[str, Any] | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     summary = {
         "total": len(results),
@@ -812,7 +816,169 @@ def write_report(path: Path, provider: str, results: list[dict[str, Any]]) -> No
         "summary": summary,
         "results": results,
     }
+    if metadata:
+        report["metadata"] = metadata
     path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def default_html_report_path(report_path: Path) -> Path:
+    return report_path.with_suffix(".html")
+
+
+def resolve_html_report_path(value: str | None, report_path: Path) -> Path | None:
+    if value is None:
+        return None
+    if value == "":
+        return default_html_report_path(report_path)
+    return Path(value)
+
+
+def html_escape(value: Any) -> str:
+    return html.escape(str(value if value is not None else ""), quote=True)
+
+
+def html_link(path_value: Any, label: str, base_path: Path | None = None) -> str:
+    if not path_value:
+        return ""
+    path = Path(str(path_value))
+    href_path = path
+    if base_path:
+        try:
+            href_path = path.resolve().relative_to(base_path.parent.resolve())
+        except (OSError, ValueError):
+            href_path = path
+    return f'<a href="{html_escape(href_path.as_posix())}">{html_escape(label)}</a>'
+
+
+def status_class(status: Any) -> str:
+    normalized = str(status or "review").lower()
+    if normalized in {"pass", "review", "fail"}:
+        return normalized
+    return "review"
+
+
+def response_excerpt(text: Any, limit: int = 1600) -> str:
+    value = str(text or "")
+    if len(value) <= limit:
+        return value
+    return f"{value[:limit]}\n[truncated: {len(value) - limit} characters omitted]"
+
+
+def write_html_report(path: Path, report: dict[str, Any], source_report_path: Path | None = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    summary = report.get("summary", {}) or {}
+    results = [item for item in report.get("results", []) if isinstance(item, dict)]
+    non_pass = [item for item in results if item.get("status") != "pass"]
+    metadata = report.get("metadata", {}) or {}
+    source_report_link = html_link(source_report_path, "JSON report", path) if source_report_path else ""
+    trace_link = html_link(metadata.get("trace_file"), "Trace file", path)
+    links = " ".join(item for item in (source_report_link, trace_link) if item)
+
+    finding_cards = []
+    for result in non_pass:
+        status = status_class(result.get("status"))
+        findings = result.get("findings", []) or []
+        finding_items = "\n".join(
+            f"<li><strong>{html_escape(finding.get('check'))}</strong>: {html_escape(finding.get('detail'))}</li>"
+            for finding in findings
+            if isinstance(finding, dict)
+        )
+        if not finding_items:
+            finding_items = "<li>No finding details recorded.</li>"
+        finding_cards.append(
+            "\n".join(
+                [
+                    f'<section class="case {status}">',
+                    f'<div class="case-head"><span class="badge {status}">{html_escape(status.upper())}</span> '
+                    f'<strong>{html_escape(result.get("id"))}</strong> {html_escape(result.get("name"))}</div>',
+                    f'<div class="meta">Category: {html_escape(result.get("category"))} | Elapsed: {html_escape(result.get("elapsed_ms"))} ms</div>',
+                    f"<ul>{finding_items}</ul>",
+                    "<details open><summary>Response excerpt</summary>",
+                    f"<pre>{html_escape(response_excerpt(result.get('response')))}</pre>",
+                    "</details>",
+                    "</section>",
+                ]
+            )
+        )
+
+    if not finding_cards:
+        finding_cards.append('<section class="case pass"><strong>No review or fail findings.</strong></section>')
+
+    rows = []
+    for result in results:
+        status = status_class(result.get("status"))
+        rows.append(
+            "<tr>"
+            f'<td><span class="badge {status}">{html_escape(status.upper())}</span></td>'
+            f"<td>{html_escape(result.get('id'))}</td>"
+            f"<td>{html_escape(result.get('name'))}</td>"
+            f"<td>{html_escape(result.get('category'))}</td>"
+            f"<td>{html_escape(result.get('elapsed_ms'))}</td>"
+            f"<td>{html_escape(len(result.get('findings', []) or []))}</td>"
+            "</tr>"
+        )
+
+    generated_at = html_escape(report.get("generated_at", ""))
+    provider = html_escape(report.get("provider", ""))
+    html_text = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SentinelProbe Report</title>
+  <style>
+    :root {{ color-scheme: light; --bg: #f6f7f9; --panel: #fff; --text: #20242a; --muted: #5d6673; --line: #d8dde6; }}
+    body {{ margin: 0; font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: var(--text); }}
+    main {{ max-width: 1180px; margin: 0 auto; padding: 28px; }}
+    h1, h2 {{ margin: 0 0 12px; }}
+    .top, .case, table {{ background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }}
+    .top {{ padding: 20px; margin-bottom: 18px; }}
+    .meta {{ color: var(--muted); font-size: 13px; margin: 6px 0; }}
+    .cards {{ display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 12px; margin: 18px 0; }}
+    .card {{ background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px; }}
+    .card strong {{ display: block; font-size: 26px; margin-top: 4px; }}
+    .case {{ padding: 14px; margin: 12px 0; border-left-width: 6px; }}
+    .case-head {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }}
+    .pass {{ border-left-color: #238636; }}
+    .review {{ border-left-color: #b7791f; }}
+    .fail {{ border-left-color: #c62828; }}
+    .badge {{ border-radius: 4px; color: #fff; padding: 2px 7px; font-size: 12px; font-weight: 700; }}
+    .badge.pass {{ background: #238636; }}
+    .badge.review {{ background: #b7791f; }}
+    .badge.fail {{ background: #c62828; }}
+    pre {{ white-space: pre-wrap; word-break: break-word; background: #f0f2f5; border: 1px solid var(--line); border-radius: 4px; padding: 12px; }}
+    table {{ width: 100%; border-collapse: collapse; overflow: hidden; }}
+    th, td {{ border-bottom: 1px solid var(--line); padding: 9px; text-align: left; font-size: 14px; }}
+    th {{ background: #eef1f5; }}
+    a {{ color: #0b5cad; }}
+    @media (max-width: 760px) {{ main {{ padding: 14px; }} .cards {{ grid-template-columns: repeat(2, minmax(120px, 1fr)); }} }}
+  </style>
+</head>
+<body>
+<main>
+  <section class="top">
+    <h1>SentinelProbe Report</h1>
+    <div class="meta">Generated: {generated_at} | Provider: {provider}</div>
+    <div class="meta">{links}</div>
+  </section>
+  <section class="cards">
+    <div class="card">Total<strong>{html_escape(summary.get('total', 0))}</strong></div>
+    <div class="card">Pass<strong>{html_escape(summary.get('pass', 0))}</strong></div>
+    <div class="card">Review<strong>{html_escape(summary.get('review', 0))}</strong></div>
+    <div class="card">Fail<strong>{html_escape(summary.get('fail', 0))}</strong></div>
+  </section>
+  <h2>Findings</h2>
+  {''.join(finding_cards)}
+  <h2>All Results</h2>
+  <table>
+    <thead><tr><th>Status</th><th>Case</th><th>Name</th><th>Category</th><th>ms</th><th>Findings</th></tr></thead>
+    <tbody>{''.join(rows)}</tbody>
+  </table>
+</main>
+</body>
+</html>
+"""
+    path.write_text(html_text, encoding="utf-8")
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -899,7 +1065,7 @@ def print_examples(target: str) -> None:
             "sentinelprobe claude-code --test direct-advanced",
             "",
             "Claude Code file-based indirect prompt injection:",
-            "sentinelprobe claude-code --test indirect --mutations --agent-files --verbose --only-findings",
+            "sentinelprobe claude-code --test indirect --mutations --agent-files --verbose --only-findings --html-report",
         ],
         "mock": [
             "Local mock baseline:",
@@ -913,7 +1079,7 @@ def print_examples(target: str) -> None:
             "sentinelprobe claude-code --test indirect --mutations --verbose --only-findings",
             "",
             "Claude Code file-based indirect prompt injection:",
-            "sentinelprobe claude-code --test indirect --mutations --agent-files --verbose --only-findings",
+            "sentinelprobe claude-code --test indirect --mutations --agent-files --verbose --only-findings --html-report",
         ],
         "http": [
             "Approved HTTP endpoint:",
@@ -931,11 +1097,15 @@ def print_examples(target: str) -> None:
         print("\n".join(examples[key]))
 
 
-def summarize_report(path: Path, plain: bool = False) -> int:
+def summarize_report(path: Path, plain: bool = False, html_report: str | None = None) -> int:
     report = load_json(path)
     summary = report.get("summary", {})
     color = use_color()
     print(f"{tagged_label('INFO', color)} Report: {path}")
+    html_report_path = resolve_html_report_path(html_report, path)
+    if html_report_path:
+        write_html_report(html_report_path, report, path)
+        print(f"{tagged_label('INFO', color)} HTML report: {html_report_path}")
     if plain:
         print(
             "Summary: "
@@ -1070,6 +1240,7 @@ def run_wizard(color_mode: str = "auto") -> int:
         trace=False,
         trace_limit=4000,
         trace_file=None,
+        html_report=None,
     )
     return run_cases(args, cases)
 
@@ -1150,12 +1321,23 @@ def run_cases(args: argparse.Namespace, cases: list[dict[str, Any]]) -> int:
 
     cases_name = getattr(args, "cases_name", None) or getattr(args, "cases", "cases")
     report_path = Path(args.report) if args.report else default_report_path(args.provider, str(cases_name))
-    write_report(report_path, args.provider, results)
+    metadata = {}
+    if getattr(args, "trace_file", None):
+        metadata["trace_file"] = str(args.trace_file)
+    if getattr(args, "cases_name", None):
+        metadata["cases_name"] = str(args.cases_name)
+    write_report(report_path, args.provider, results, metadata)
+    html_report_path = resolve_html_report_path(getattr(args, "html_report", None), report_path)
+    if html_report_path:
+        report = load_json(report_path)
+        write_html_report(html_report_path, report, report_path)
 
     failed = sum(1 for item in results if item["status"] == "fail")
     review = sum(1 for item in results if item["status"] == "review")
     passed = sum(1 for item in results if item["status"] == "pass")
     print(f"{tagged_label('INFO', color)} Report: {report_path}")
+    if html_report_path:
+        print(f"{tagged_label('INFO', color)} HTML report: {html_report_path}")
     print_summary_graph({"pass": passed, "review": review, "fail": failed, "total": len(results)}, color=color)
 
     if failed or (review and args.fail_on_review):
@@ -1305,6 +1487,7 @@ def run_claude_code(args: argparse.Namespace) -> int:
         trace=args.trace,
         trace_limit=args.trace_limit,
         trace_file=args.trace_file,
+        html_report=args.html_report,
         cases_name=f"claude-code_{test_name}{'_mutations' if args.mutations else ''}{'_agent-files' if args.agent_files else ''}",
     )
     return run_cases(run_args, cases)
@@ -1349,7 +1532,7 @@ def main() -> int:
         return 0
 
     if args.command_name == "summarize":
-        return summarize_report(Path(args.report), args.plain)
+        return summarize_report(Path(args.report), args.plain, args.html_report)
 
     cases = load_cases(resolve_cases_path(args.cases), getattr(args, "mutations", False))
     args.cases_name = f"{args.cases}{'_mutations' if getattr(args, 'mutations', False) else ''}"
