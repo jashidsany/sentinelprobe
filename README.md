@@ -47,6 +47,14 @@ List bundled suites:
 sentinelprobe list-suites
 ```
 
+List target presets:
+
+```bash
+sentinelprobe presets list
+sentinelprobe presets show claude-code
+sentinelprobe presets init glean-browser --output sentinelprobe-targets/glean-browser.json
+```
+
 Run the local mock baseline:
 
 ```bash
@@ -107,6 +115,17 @@ Use `--mutations` to expand suites that define deterministic variants.
 - `http`: approved API or internal test shim.
 - `command`: local wrapper around a CLI agent.
 - `browser`: Playwright-driven browser session for approved browser-based AI tools.
+
+## Presets
+
+Presets provide safe starter commands and setup notes for common target types:
+
+- `claude-code`
+- `claude-code-agent-files`
+- `glean-browser`
+- `generic-http`
+- `generic-browser`
+- `custom-command`
 
 ## Reports
 

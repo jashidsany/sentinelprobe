@@ -23,6 +23,7 @@ COMPARE = ROOT / "prompt_injection_harness" / "compare.py"
 DOCTOR = ROOT / "prompt_injection_harness" / "doctor.py"
 HTML_REPORTS = ROOT / "prompt_injection_harness" / "html_reports.py"
 PROVIDERS = ROOT / "prompt_injection_harness" / "providers.py"
+PRESETS = ROOT / "prompt_injection_harness" / "presets.py"
 REPORTS = ROOT / "prompt_injection_harness" / "reports.py"
 SCORING = ROOT / "prompt_injection_harness" / "scoring.py"
 WRAPPER = ROOT / "prompt_injection_harness" / "wrappers" / "claude_code_wrapper.py"
@@ -64,6 +65,7 @@ def py_compile() -> None:
             str(DOCTOR),
             str(HTML_REPORTS),
             str(PROVIDERS),
+            str(PRESETS),
             str(REPORTS),
             str(SCORING),
             str(WRAPPER),
@@ -154,6 +156,13 @@ def source_checks(artifact_dir: Path) -> None:
     run_step("validate agent-files", cli("validate", "--cases", "agent-files"))
     run_step("list suites", cli("list-suites"))
     run_step("examples agent-files", cli("examples", "agent-files"))
+    run_step("examples presets", cli("examples", "presets"))
+    run_step("presets list", cli("presets", "list"))
+    run_step("presets show claude-code", cli("presets", "show", "claude-code"))
+    run_step(
+        "presets init generic-http",
+        cli("presets", "init", "generic-http", "--output", str(artifact_dir / "generic_http_preset.json")),
+    )
     run_step("doctor browser", cli("doctor", "--target", "browser"))
 
     run_step(

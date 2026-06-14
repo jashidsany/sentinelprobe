@@ -147,6 +147,7 @@ sentinelprobe examples
 sentinelprobe examples claude-code
 sentinelprobe examples indirect
 sentinelprobe examples agent-files
+sentinelprobe examples presets
 sentinelprobe examples compare
 sentinelprobe examples doctor
 ```
@@ -238,6 +239,40 @@ The same case files can be run against four target types:
 - `http`: approved API or internal test shim.
 - `command`: local wrapper around a CLI agent.
 - `browser`: Playwright-driven browser session for apps such as Glean.
+
+## Presets
+
+Presets provide safe starter commands, recommended suites, setup checks, and notes for common targets.
+
+List presets:
+
+```bash
+sentinelprobe presets list
+```
+
+Show a preset:
+
+```bash
+sentinelprobe presets show claude-code
+sentinelprobe presets show glean-browser
+```
+
+Write a preset JSON file:
+
+```bash
+sentinelprobe presets init glean-browser --output sentinelprobe-targets/glean-browser.json
+```
+
+Use `--force` to overwrite an existing preset file.
+
+Current presets:
+
+- `claude-code`: response-only Claude Code prompt injection testing.
+- `claude-code-agent-files`: file-based Claude Code coding-agent testing.
+- `glean-browser`: browser-driven testing for an approved Glean tenant.
+- `generic-http`: approved HTTP endpoint or internal test shim.
+- `generic-browser`: approved browser-based AI web app.
+- `custom-command`: local command wrapper that reads SentinelProbe case JSON on stdin.
 
 ## Bundled Suites
 

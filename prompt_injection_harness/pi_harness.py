@@ -42,6 +42,7 @@ from prompt_injection_harness.providers import (
     call_mock,
     render_case_input,
 )
+from prompt_injection_harness.presets import render_preset, render_preset_list, write_preset
 from prompt_injection_harness.scoring import score_case
 
 
@@ -142,10 +143,20 @@ def create_parser() -> argparse.ArgumentParser:
     init_project.add_argument("--output", default="ai_security_tests")
     init_project.add_argument("--force", action="store_true", help="Overwrite existing starter files in the output folder.")
 
+    presets = subparsers.add_parser("presets", help="List, show, or write target presets.")
+    preset_subparsers = presets.add_subparsers(dest="preset_command", required=True)
+    preset_subparsers.add_parser("list", help="List available presets.")
+    preset_show = preset_subparsers.add_parser("show", help="Show a preset.")
+    preset_show.add_argument("name")
+    preset_init = preset_subparsers.add_parser("init", help="Write a preset JSON file.")
+    preset_init.add_argument("name")
+    preset_init.add_argument("--output", required=True)
+    preset_init.add_argument("--force", action="store_true", help="Overwrite an existing preset file.")
+
     subparsers.add_parser("banner", help="Print the SentinelProbe banner.")
     subparsers.add_parser("list-suites", help="List bundled case suite aliases.")
     examples = subparsers.add_parser("examples", help="Print copy-ready example commands.")
-    examples.add_argument("target", nargs="?", choices=["all", "claude-code", "mock", "indirect", "agent-files", "compare", "doctor", "http", "browser"], default="all")
+    examples.add_argument("target", nargs="?", choices=["all", "claude-code", "mock", "indirect", "agent-files", "compare", "doctor", "presets", "http", "browser"], default="all")
     subparsers.add_parser("wizard", help="Interactive setup for common test runs.")
 
     return parser
@@ -462,6 +473,16 @@ def print_examples(target: str) -> None:
             "",
             "Check browser setup:",
             "sentinelprobe doctor --target browser --browser-config prompt_injection_harness/browser_targets/claude_template.json",
+        ],
+        "presets": [
+            "List target presets:",
+            "sentinelprobe presets list",
+            "",
+            "Show a preset:",
+            "sentinelprobe presets show claude-code",
+            "",
+            "Write a preset JSON file:",
+            "sentinelprobe presets init glean-browser --output sentinelprobe-targets/glean-browser.json",
         ],
         "http": [
             "Approved HTTP endpoint:",
@@ -921,6 +942,18 @@ def main() -> int:
         write_browser_template(Path(args.output), args.base_url)
         print(f"Wrote browser config template: {args.output}")
         return 0
+
+    if args.command_name == "presets":
+        if args.preset_command == "list":
+            print(render_preset_list())
+            return 0
+        if args.preset_command == "show":
+            print(render_preset(args.name))
+            return 0
+        if args.preset_command == "init":
+            write_preset(args.name, Path(args.output), args.force)
+            print(f"Wrote preset: {args.output}")
+            return 0
 
     if args.command_name == "summarize":
         return summarize_report(Path(args.report), args.plain, args.html_report)
