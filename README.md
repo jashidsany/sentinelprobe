@@ -33,6 +33,14 @@ Run the interactive wizard:
 sentinelprobe wizard
 ```
 
+Check local setup:
+
+```bash
+sentinelprobe doctor
+sentinelprobe doctor --target claude-code
+sentinelprobe doctor --target browser
+```
+
 The SentinelProbe banner appears at startup for every command, including no-argument runs and help output. You can also print only the banner:
 
 ```bash
@@ -138,6 +146,7 @@ Show copy-ready examples:
 sentinelprobe examples
 sentinelprobe examples claude-code
 sentinelprobe examples indirect
+sentinelprobe examples doctor
 ```
 
 Direct suite aliases:

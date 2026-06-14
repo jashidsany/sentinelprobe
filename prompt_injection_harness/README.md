@@ -65,6 +65,14 @@ You can also run the bundled cases without creating a workspace:
 sentinelprobe run --cases builtin --provider mock --report reports/mock_report.json --verbose
 ```
 
+Check local setup:
+
+```bash
+sentinelprobe doctor
+sentinelprobe doctor --target claude-code
+sentinelprobe doctor --target browser
+```
+
 Run the direct prompt injection suite:
 
 ```bash
@@ -139,6 +147,7 @@ sentinelprobe examples
 sentinelprobe examples claude-code
 sentinelprobe examples indirect
 sentinelprobe examples compare
+sentinelprobe examples doctor
 ```
 
 Direct suite aliases:

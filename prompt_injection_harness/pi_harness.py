@@ -72,6 +72,13 @@ class TargetResult:
     elapsed_ms: int = 0
 
 
+@dataclass
+class DoctorCheck:
+    status: str
+    name: str
+    detail: str
+
+
 def create_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run authorized AI prompt-injection and agent-boundary tests.",
@@ -147,6 +154,11 @@ def create_parser() -> argparse.ArgumentParser:
     compare.add_argument("--plain", action="store_true", help="Use compact plain-text output.")
     compare.add_argument("--html-report", nargs="?", const="", help="Write an HTML comparison report. Defaults to reports/compare_<before>_to_<after>.html when used without a value.")
 
+    doctor = subparsers.add_parser("doctor", help="Check local SentinelProbe setup.")
+    doctor.add_argument("--target", choices=["all", "claude-code", "browser"], default="all", help="Target-specific checks to run. Default: all.")
+    doctor.add_argument("--browser-config", default="prompt_injection_harness/browser_targets/claude_template.json", help="Browser config path to validate for browser checks.")
+    doctor.add_argument("--workdir", default="prompt_injection_harness/targets/claude_code_sandbox", help="Claude Code disposable workdir to check.")
+
     init_browser = subparsers.add_parser("init-browser-config", help="Write a browser provider config template.")
     init_browser.add_argument("--output", default="prompt_injection_harness/browser_targets/generic_browser.json")
     init_browser.add_argument("--base-url", default="https://app.example.test")
@@ -158,7 +170,7 @@ def create_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("banner", help="Print the SentinelProbe banner.")
     subparsers.add_parser("list-suites", help="List bundled case suite aliases.")
     examples = subparsers.add_parser("examples", help="Print copy-ready example commands.")
-    examples.add_argument("target", nargs="?", choices=["all", "claude-code", "mock", "indirect", "compare", "http", "browser"], default="all")
+    examples.add_argument("target", nargs="?", choices=["all", "claude-code", "mock", "indirect", "compare", "doctor", "http", "browser"], default="all")
     subparsers.add_parser("wizard", help="Interactive setup for common test runs.")
 
     return parser
@@ -245,6 +257,11 @@ def severity_label(severity: str, color: bool | None = None) -> str:
     return tagged_label(normalized, color)
 
 
+def doctor_label(status: str, color: bool | None = None) -> str:
+    tag = {"ok": "OK", "warn": "WARN", "fail": "FAIL"}.get(status, "WARN")
+    return tagged_label(tag, color)
+
+
 def finding_label(finding: dict[str, Any], color: bool | None = None) -> str:
     check = str(finding.get("check", "finding"))
     severity = str(finding.get("severity", "review"))
@@ -291,6 +308,20 @@ def print_banner(color_mode: str | None = None) -> None:
 
 def package_root() -> Path:
     return Path(__file__).resolve().parent
+
+
+def package_version() -> str:
+    try:
+        from prompt_injection_harness import __version__
+
+        return str(__version__)
+    except Exception:
+        init_file = package_root() / "__init__.py"
+        try:
+            match = re.search(r'__version__\s*=\s*"([^"]+)"', init_file.read_text(encoding="utf-8"))
+        except OSError:
+            match = None
+        return match.group(1) if match else "unknown"
 
 
 def resolve_cases_path(raw_path: str) -> list[Path]:
@@ -462,6 +493,7 @@ def init_project(output: Path, force: bool) -> None:
                     "Quick check:",
                     "",
                     "```bash",
+                    "sentinelprobe doctor",
                     "sentinelprobe validate --cases cases",
                     "sentinelprobe run --cases cases --provider mock --report reports/mock_report.json --verbose",
                     "```",
@@ -1287,6 +1319,104 @@ def print_suites() -> None:
         print(f"{name:<24} {count:>3} cases  {description}  [{display}]")
 
 
+def add_check(checks: list[DoctorCheck], status: str, name: str, detail: str) -> None:
+    checks.append(DoctorCheck(status=status, name=name, detail=detail))
+
+
+def check_writable_directory(path: Path) -> tuple[bool, str]:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / ".sentinelprobe_write_test"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+    except OSError as exc:
+        return False, str(exc)
+    return True, str(path)
+
+
+def run_doctor(target: str = "all", browser_config: str = "", workdir: str = "") -> int:
+    color = use_color()
+    checks: list[DoctorCheck] = []
+
+    add_check(checks, "ok", "Python", sys.version.split()[0])
+    add_check(checks, "ok", "SentinelProbe package", f"version {package_version()}")
+    add_check(checks, "ok" if yaml else "fail", "PyYAML", "available" if yaml else "missing. Install PyYAML.")
+
+    try:
+        builtin_cases = load_cases(resolve_cases_path("builtin"))
+        add_check(checks, "ok", "Bundled cases", f"{len(builtin_cases)} cases loaded")
+    except Exception as exc:
+        add_check(checks, "fail", "Bundled cases", str(exc))
+
+    writable, detail = check_writable_directory(Path("reports"))
+    add_check(checks, "ok" if writable else "fail", "Reports directory", detail if writable else f"not writable: {detail}")
+
+    if target in {"all", "claude-code"}:
+        claude_path = shutil.which("claude")
+        add_check(checks, "ok" if claude_path else "fail", "Claude CLI", claude_path or "not found on PATH")
+        if claude_path:
+            try:
+                completed = subprocess.run(
+                    [claude_path, "--help"],
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=10,
+                    check=False,
+                )
+                detail = "help command returned 0" if completed.returncode == 0 else f"help returned {completed.returncode}"
+                add_check(checks, "ok" if completed.returncode == 0 else "warn", "Claude CLI help", detail)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                add_check(checks, "warn", "Claude CLI help", str(exc))
+        wrapper_path = shutil.which("claude-code-wrapper")
+        local_wrapper = package_root() / "wrappers" / "claude_code_wrapper.py"
+        if wrapper_path:
+            add_check(checks, "ok", "Claude wrapper", wrapper_path)
+        elif local_wrapper.exists():
+            add_check(checks, "warn", "Claude wrapper", f"console script not on PATH, local wrapper exists at {local_wrapper}")
+        else:
+            add_check(checks, "fail", "Claude wrapper", "claude-code-wrapper not found")
+        if workdir:
+            workdir_path = Path(workdir)
+            if workdir_path.exists() and not workdir_path.is_dir():
+                add_check(checks, "fail", "Claude workdir", f"{workdir_path} exists and is not a directory")
+            else:
+                add_check(checks, "ok", "Claude workdir", f"{workdir_path} can be used as disposable sandbox")
+        add_check(checks, "ok", "Built-in data safety", "bundled cases use fake documents and fake secrets")
+
+    if target in {"all", "browser"}:
+        try:
+            import playwright  # type: ignore  # noqa: F401
+
+            add_check(checks, "ok", "Playwright package", "available")
+        except ImportError:
+            add_check(checks, "warn", "Playwright package", "not installed. Install sentinelprobe[browser] and run playwright install chromium.")
+        config_path = Path(browser_config)
+        if config_path.exists():
+            try:
+                config = load_json(config_path)
+                required = ["base_url", "profile_dir", "prompt_selector", "submit_selector", "response_selector"]
+                missing = [key for key in required if not config.get(key)]
+                if missing:
+                    add_check(checks, "warn", "Browser config", f"{config_path} missing values: {', '.join(missing)}")
+                else:
+                    add_check(checks, "ok", "Browser config", f"{config_path} has required keys")
+            except SystemExit as exc:
+                add_check(checks, "fail", "Browser config", str(exc))
+        else:
+            add_check(checks, "warn", "Browser config", f"{config_path} not found")
+
+    print("Doctor")
+    print("------")
+    for check in checks:
+        print(f"{doctor_label(check.status, color)} {check.name}: {check.detail}")
+
+    fail_count = sum(1 for check in checks if check.status == "fail")
+    warn_count = sum(1 for check in checks if check.status == "warn")
+    print(f"\nSummary: ok={sum(1 for check in checks if check.status == 'ok')} warn={warn_count} fail={fail_count}")
+    return 1 if fail_count else 0
+
+
 def print_examples(target: str) -> None:
     examples = {
         "claude-code": [
@@ -1322,6 +1452,16 @@ def print_examples(target: str) -> None:
         "compare": [
             "Compare two JSON reports:",
             "sentinelprobe compare --before reports/baseline.json --after reports/latest.json --html-report",
+        ],
+        "doctor": [
+            "Check general setup:",
+            "sentinelprobe doctor",
+            "",
+            "Check Claude Code setup:",
+            "sentinelprobe doctor --target claude-code",
+            "",
+            "Check browser setup:",
+            "sentinelprobe doctor --target browser --browser-config prompt_injection_harness/browser_targets/claude_template.json",
         ],
         "http": [
             "Approved HTTP endpoint:",
@@ -1823,6 +1963,9 @@ def main() -> int:
     if args.command_name == "examples":
         print_examples(args.target)
         return 0
+
+    if args.command_name == "doctor":
+        return run_doctor(args.target, args.browser_config, args.workdir)
 
     if args.command_name == "claude-code":
         return run_claude_code(args)
