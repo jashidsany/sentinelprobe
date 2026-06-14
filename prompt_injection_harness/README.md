@@ -65,6 +65,12 @@ You can also run the bundled cases without creating a workspace:
 sentinelprobe run --cases builtin --provider mock --report reports/mock_report.json --verbose
 ```
 
+Run the direct prompt injection suite:
+
+```bash
+sentinelprobe run --cases direct --provider mock --report reports/direct_mock_report.json --verbose
+```
+
 Interactive mode:
 
 ```bash
@@ -128,6 +134,33 @@ The same case files can be run against four target types:
 - `http`: approved API or internal test shim.
 - `command`: local wrapper around a CLI agent.
 - `browser`: Playwright-driven browser session for apps such as Glean.
+
+## Bundled Suites
+
+List suite aliases:
+
+```bash
+sentinelprobe list-suites
+```
+
+Current aliases:
+
+- `builtin`: all bundled cases.
+- `direct`: direct prompt injection cases.
+- `direct-prompt-injection`: alias for `direct`.
+
+The direct suite covers:
+
+- basic instruction override
+- hidden system prompt extraction attempts
+- fake administrator roleplay
+- delimiter instruction smuggling
+- output format hijacking
+- fake secret disclosure
+- refusal suppression
+- multilingual override
+- Markdown comment override
+- citation suppression
 
 ### Mock provider
 
@@ -204,11 +237,11 @@ Run against Claude Code CLI:
 
 ```bash
 sentinelprobe run \
-  --cases prompt_injection_harness/cases \
+  --cases direct \
   --provider command \
-  --command 'claude-code-wrapper --mode response-only --max-budget-usd 0.25' \
+  --command 'claude-code-wrapper --mode response-only --model sonnet --max-budget-usd 0.25' \
   --timeout 180 \
-  --report prompt_injection_harness/reports/claude_code_report.json \
+  --report reports/claude_code_direct_report.json \
   --verbose
 ```
 

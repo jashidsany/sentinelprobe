@@ -52,6 +52,12 @@ Run bundled cases against the local mock provider:
 sentinelprobe run --cases builtin --provider mock --report reports/mock_report.json --verbose
 ```
 
+Run the direct prompt injection suite:
+
+```bash
+sentinelprobe run --cases direct --provider mock --report reports/direct_mock_report.json --verbose
+```
+
 Create a starter workspace:
 
 ```bash
@@ -77,11 +83,11 @@ sentinelprobe summarize --report reports/mock_report.json
 
 ```bash
 sentinelprobe run \
-  --cases builtin \
+  --cases direct \
   --provider command \
-  --command 'claude-code-wrapper --mode response-only --max-budget-usd 0.25' \
+  --command 'claude-code-wrapper --mode response-only --model sonnet --max-budget-usd 0.25' \
   --timeout 180 \
-  --report reports/claude_code_report.json \
+  --report reports/claude_code_direct_report.json \
   --verbose
 ```
 

@@ -24,6 +24,13 @@ except ImportError:
     yaml = None
 
 
+CASE_SUITES = {
+    "builtin": "cases",
+    "direct": "cases/direct_prompt_injection.yaml",
+    "direct-prompt-injection": "cases/direct_prompt_injection.yaml",
+}
+
+
 @dataclass
 class TargetResult:
     ok: bool
@@ -55,10 +62,10 @@ def create_parser() -> argparse.ArgumentParser:
     run.add_argument("--verbose", action="store_true")
 
     list_cases = subparsers.add_parser("list-cases", help="List loaded cases.")
-    list_cases.add_argument("--cases", required=True, help="YAML case file, case directory, or 'builtin'.")
+    list_cases.add_argument("--cases", required=True, help="YAML case file, case directory, or suite alias such as 'builtin' or 'direct'.")
 
     validate = subparsers.add_parser("validate", help="Validate case files without running a target.")
-    validate.add_argument("--cases", required=True, help="YAML case file, case directory, or 'builtin'.")
+    validate.add_argument("--cases", required=True, help="YAML case file, case directory, or suite alias such as 'builtin' or 'direct'.")
 
     summarize = subparsers.add_parser("summarize", help="Summarize a JSON report.")
     summarize.add_argument("--report", required=True)
@@ -73,6 +80,7 @@ def create_parser() -> argparse.ArgumentParser:
     init_project.add_argument("--force", action="store_true", help="Overwrite existing starter files in the output folder.")
 
     subparsers.add_parser("banner", help="Print the SentinelProbe banner.")
+    subparsers.add_parser("list-suites", help="List bundled case suite aliases.")
     subparsers.add_parser("wizard", help="Interactive setup for common test runs.")
 
     return parser
@@ -135,8 +143,8 @@ def package_root() -> Path:
 
 
 def resolve_cases_path(raw_path: str) -> Path:
-    if raw_path == "builtin":
-        return package_root() / "cases"
+    if raw_path in CASE_SUITES:
+        return package_root() / CASE_SUITES[raw_path]
     return Path(raw_path)
 
 
@@ -261,6 +269,11 @@ def build_headers(header_args: list[str]) -> dict[str, str]:
 def call_mock(case: dict[str, Any], timeout: int) -> TargetResult:
     del timeout
     start = time.monotonic()
+    mock_response = (case.get("metadata") or {}).get("mock_response")
+    if mock_response:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        return TargetResult(ok=True, text=str(mock_response), elapsed_ms=elapsed_ms)
+
     docs = case.get("documents", [])
     business_lines: list[str] = []
     citations: list[str] = []
@@ -392,6 +405,8 @@ def browser_prompt_for_case(case: dict[str, Any], config: dict[str, Any]) -> str
         docs = []
         for doc in case.get("documents", []):
             docs.append(f"Source title: {doc.get('title', 'Untitled')}\n{doc.get('content', '')}")
+        if not docs:
+            return str(case.get("user_prompt", "")).strip()
         joined_docs = "\n\n---\n\n".join(docs)
         return (
             f"{case.get('user_prompt', '')}\n\n"
@@ -597,6 +612,13 @@ def print_case_catalog(cases: list[dict[str, Any]]) -> None:
             print(f"{case.get('id'):<16} {case.get('name', '')}")
 
 
+def print_suites() -> None:
+    print("Bundled suites")
+    print("--------------")
+    for name, target in sorted(CASE_SUITES.items()):
+        print(f"{name:<24} {target}")
+
+
 def summarize_report(path: Path, plain: bool = False) -> int:
     report = load_json(path)
     summary = report.get("summary", {})
@@ -785,6 +807,10 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.command_name == "banner":
+        return 0
+
+    if args.command_name == "list-suites":
+        print_suites()
         return 0
 
     if args.command_name == "wizard":
