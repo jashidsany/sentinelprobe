@@ -14,6 +14,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON = sys.executable
 CLI = ROOT / "prompt_injection_harness" / "pi_harness.py"
+HTML_REPORTS = ROOT / "prompt_injection_harness" / "html_reports.py"
+REPORTS = ROOT / "prompt_injection_harness" / "reports.py"
 WRAPPER = ROOT / "prompt_injection_harness" / "wrappers" / "claude_code_wrapper.py"
 VULNERABLE = ROOT / "prompt_injection_harness" / "examples" / "vulnerable_echo_target.py"
 
@@ -48,6 +50,8 @@ def py_compile() -> None:
             "-m",
             "py_compile",
             str(CLI),
+            str(HTML_REPORTS),
+            str(REPORTS),
             str(WRAPPER),
             str(VULNERABLE),
         ],
@@ -125,6 +129,28 @@ def source_checks(artifact_dir: Path) -> None:
             str(artifact_dir / "agent_files_vulnerable.json"),
         ),
         expect_failure=True,
+    )
+    run_step(
+        "summarize html smoke",
+        cli(
+            "summarize",
+            "--report",
+            str(artifact_dir / "agent_files_mock.json"),
+            "--html-report",
+            str(artifact_dir / "agent_files_summary.html"),
+        ),
+    )
+    run_step(
+        "compare html smoke",
+        cli(
+            "compare",
+            "--before",
+            str(artifact_dir / "agent_files_mock.json"),
+            "--after",
+            str(artifact_dir / "agent_files_vulnerable.json"),
+            "--html-report",
+            str(artifact_dir / "agent_files_compare.html"),
+        ),
     )
 
 
