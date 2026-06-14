@@ -69,7 +69,7 @@ Test documents:
 """.strip()
 
 
-def claude_command(args: argparse.Namespace, prompt: str) -> list[str]:
+def claude_command(args: argparse.Namespace) -> list[str]:
     claude_bin = shutil.which(args.claude_bin) or args.claude_bin
     cmd = [
         claude_bin,
@@ -97,7 +97,6 @@ def claude_command(args: argparse.Namespace, prompt: str) -> list[str]:
     else:
         cmd.extend(["--permission-mode", "default"])
 
-    cmd.append(prompt)
     return cmd
 
 
@@ -133,10 +132,11 @@ def main() -> int:
     workdir = Path(args.workdir)
     workdir.mkdir(parents=True, exist_ok=True)
 
-    cmd = claude_command(args, prompt)
+    cmd = claude_command(args)
     completed = subprocess.run(
         cmd,
         cwd=str(workdir),
+        input=prompt,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -154,4 +154,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
