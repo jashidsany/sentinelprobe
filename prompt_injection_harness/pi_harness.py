@@ -90,7 +90,7 @@ def create_parser() -> argparse.ArgumentParser:
     run.add_argument("--report", help="Report path. Defaults to reports/<provider>_<cases>_<timestamp>.json.")
     run.add_argument("--mutations", action="store_true", help="Add deterministic variants for cases that define mutations.")
     run.add_argument("--fail-on-review", action="store_true", help="Return non-zero when any case needs review.")
-    run.add_argument("--verbose", action="store_true", help="Show each case status plus outlined prompt and response text.")
+    run.add_argument("--verbose", action="store_true", help="Show each case status plus prompt and response text.")
     run.add_argument("--show-findings", action="store_true", help="Print full finding details for each non-pass case during the run.")
     run.add_argument("--only-findings", action="store_true", help="With --verbose, hide passing case lines and show only review/fail cases.")
     run.add_argument("--trace", action="store_true", help="Compatibility alias for terminal prompt and response output. Prefer --verbose.")
@@ -107,7 +107,7 @@ def create_parser() -> argparse.ArgumentParser:
     claude_code.add_argument("--report", help="Report path. Defaults to reports/claude-code_<suite>_<timestamp>.json.")
     claude_code.add_argument("--mutations", action="store_true", help="Add deterministic variants for cases that define mutations.")
     claude_code.add_argument("--fail-on-review", action="store_true", help="Return non-zero when any case needs review.")
-    claude_code.add_argument("--verbose", action="store_true", help="Show each case status plus outlined prompt and response text.")
+    claude_code.add_argument("--verbose", action="store_true", help="Show each case status plus prompt and response text.")
     claude_code.add_argument("--quiet", action="store_true", help="Hide per-case status lines.")
     claude_code.add_argument("--show-findings", action="store_true", help="Print full finding details for each non-pass case during the run.")
     claude_code.add_argument("--only-findings", action="store_true", help="Hide passing case lines and show only review/fail cases.")
@@ -188,6 +188,8 @@ def tag_color(tag: str) -> str:
         "OK": "32;1",
         "WARN": "33;1",
         "TRACE": "36;1",
+        "PROMPT": "36;1",
+        "RESPONSE": "34;1",
         "SECRET": "35;1",
         "CRITICAL": "31;1",
         "PASS": "32;1",
@@ -1191,12 +1193,12 @@ def print_verbose_case_io(
 ) -> None:
     case_id = case.get("id", "case")
     case_name = case.get("name", "")
-    print("  Prompt outline", file=stream, flush=True)
+    print(f"  {tagged_label('PROMPT', color)}", file=stream, flush=True)
     if case_name:
         print(f"    Case: {case_name}", file=stream, flush=True)
     print(f"    Provider: {provider}", file=stream, flush=True)
     print(indent_block(limit_trace_text(render_case_input(case, provider, browser_config), limit), "    "), file=stream, flush=True)
-    print("  Response outline", file=stream, flush=True)
+    print(f"  {tagged_label('RESPONSE', color)}", file=stream, flush=True)
     if result.error:
         print(f"    {tagged_label('WARN', color)} Target error: {result.error}", file=stream, flush=True)
     response = result.text or ""

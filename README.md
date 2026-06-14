@@ -102,7 +102,7 @@ sentinelprobe claude-code --suite indirect --mutations --verbose
 sentinelprobe run --cases direct-basic --provider mock --verbose
 ```
 
-Verbose mode prints each case status, an outlined prompt, and the target response. Use `--trace-limit 0` to print full prompts and responses. The default limit is 4000 characters per prompt or response.
+Verbose mode prints each case status, the prompt, and the target response. Use `--trace-limit 0` to print full prompts and responses. The default limit is 4000 characters per prompt or response.
 
 For readable terminal output plus a full prompt/response log, write trace output to a file:
 
