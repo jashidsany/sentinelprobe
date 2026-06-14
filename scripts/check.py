@@ -72,6 +72,26 @@ def py_compile() -> None:
     )
 
 
+def pytest_available() -> bool:
+    completed = subprocess.run(
+        [PYTHON, "-m", "pytest", "--version"],
+        cwd=str(ROOT),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    return completed.returncode == 0
+
+
+def unit_tests() -> None:
+    if not pytest_available():
+        print("\n== unit tests")
+        print("pytest is not installed for this Python; skipping unit tests.")
+        return
+    run_step("unit tests", [PYTHON, "-m", "pytest", "tests"])
+
+
 def scoring_checks() -> None:
     from prompt_injection_harness.scoring import score_case
 
@@ -282,6 +302,7 @@ def main() -> int:
     print(f"Artifacts: {artifact_dir}", flush=True)
     try:
         py_compile()
+        unit_tests()
         scoring_checks()
         source_checks(artifact_dir)
         if not args.skip_slow and args.build:
