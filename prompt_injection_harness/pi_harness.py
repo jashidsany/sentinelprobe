@@ -67,9 +67,26 @@ def parse_args() -> argparse.Namespace:
     init_project.add_argument("--output", default="ai_security_tests")
     init_project.add_argument("--force", action="store_true", help="Overwrite existing starter files in the output folder.")
 
+    subparsers.add_parser("banner", help="Print the SentinelProbe banner.")
     subparsers.add_parser("wizard", help="Interactive setup for common test runs.")
 
     return parser.parse_args()
+
+
+def banner_text() -> str:
+    return r"""
+  ____             _   _            _ ____            _
+ / ___|  ___ _ __ | |_(_)_ __   ___| |  _ \ _ __ ___ | |__   ___
+ \___ \ / _ \ '_ \| __| | '_ \ / _ \ | |_) | '__/ _ \| '_ \ / _ \
+  ___) |  __/ | | | |_| | | | |  __/ |  __/| | | (_) | |_) |  __/
+ |____/ \___|_| |_|\__|_|_| |_|\___|_|_|   |_|  \___/|_.__/ \___|
+
+ Authorized AI prompt-injection and agent-boundary testing
+""".strip("\n")
+
+
+def print_banner() -> None:
+    print(banner_text())
 
 
 def package_root() -> Path:
@@ -597,7 +614,8 @@ def choose(prompt: str, options: list[tuple[str, str]], default_index: int = 0) 
 
 
 def run_wizard() -> int:
-    print("SentinelProbe Wizard")
+    print_banner()
+    print("\nSentinelProbe Wizard")
     print("Use only approved systems, accounts, and test data.\n")
 
     cases_path = ask("Cases path", "builtin")
@@ -704,6 +722,10 @@ def run_cases(args: argparse.Namespace, cases: list[dict[str, Any]]) -> int:
 
 def main() -> int:
     args = parse_args()
+
+    if args.command_name == "banner":
+        print_banner()
+        return 0
 
     if args.command_name == "wizard":
         return run_wizard()

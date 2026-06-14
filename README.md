@@ -33,6 +33,12 @@ Run the interactive wizard:
 sentinelprobe wizard
 ```
 
+Print the CLI banner:
+
+```bash
+sentinelprobe banner
+```
+
 Run bundled cases against the local mock provider:
 
 ```bash
@@ -80,4 +86,3 @@ sentinelprobe run \
 - Treat automated findings as triage signals that need manual validation.
 
 More detailed documentation is in [`prompt_injection_harness/README.md`](prompt_injection_harness/README.md).
-
