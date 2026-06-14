@@ -91,6 +91,8 @@ def create_parser() -> argparse.ArgumentParser:
     run.add_argument("--mutations", action="store_true", help="Add deterministic variants for cases that define mutations.")
     run.add_argument("--fail-on-review", action="store_true", help="Return non-zero when any case needs review.")
     run.add_argument("--verbose", action="store_true")
+    run.add_argument("--trace", action="store_true", help="Print each case input and target response while the run is active.")
+    run.add_argument("--trace-limit", type=int, default=4000, help="Maximum characters per traced input or response. Use 0 for no limit.")
 
     claude_code = subparsers.add_parser("claude-code", help="Run Claude Code with response-only defaults.")
     claude_code.add_argument("--suite", default="direct", help="Suite alias or case path. Default: direct.")
@@ -103,6 +105,8 @@ def create_parser() -> argparse.ArgumentParser:
     claude_code.add_argument("--mutations", action="store_true", help="Add deterministic variants for cases that define mutations.")
     claude_code.add_argument("--fail-on-review", action="store_true", help="Return non-zero when any case needs review.")
     claude_code.add_argument("--quiet", action="store_true", help="Hide per-case status lines.")
+    claude_code.add_argument("--trace", action="store_true", help="Print each case input and Claude Code response while the run is active.")
+    claude_code.add_argument("--trace-limit", type=int, default=4000, help="Maximum characters per traced input or response. Use 0 for no limit.")
 
     list_cases = subparsers.add_parser("list-cases", help="List loaded cases.")
     list_cases.add_argument("--cases", required=True, help="YAML case file, case directory, or suite alias such as 'builtin' or 'direct'.")
@@ -802,10 +806,10 @@ def print_examples(target: str) -> None:
         ],
         "indirect": [
             "Indirect prompt injection with generated variants:",
-            "sentinelprobe run --cases indirect --mutations --provider mock --verbose",
+            "sentinelprobe run --cases indirect --mutations --provider mock --verbose --trace",
             "",
             "Claude Code indirect prompt injection with generated variants:",
-            "sentinelprobe claude-code --suite indirect --mutations",
+            "sentinelprobe claude-code --suite indirect --mutations --trace",
         ],
         "http": [
             "Approved HTTP endpoint:",
@@ -954,6 +958,8 @@ def run_wizard(color_mode: str = "auto") -> int:
         report=report,
         fail_on_review=False,
         verbose=verbose,
+        trace=False,
+        trace_limit=4000,
     )
     return run_cases(args, cases)
 
@@ -971,6 +977,8 @@ def run_cases(args: argparse.Namespace, cases: list[dict[str, Any]]) -> int:
 
     results = []
     for case in cases:
+        if getattr(args, "trace", False):
+            trace_case_start(case, args.provider, browser_config, int(getattr(args, "trace_limit", 4000) or 0))
         if args.provider == "mock":
             target_result = call_mock(case, args.timeout)
         elif args.provider == "http":
@@ -979,6 +987,8 @@ def run_cases(args: argparse.Namespace, cases: list[dict[str, Any]]) -> int:
             target_result = call_browser(case, browser_config, args.headed, args.slow_mo, args.timeout)
         else:
             target_result = call_command(case, args.command, args.timeout)
+        if getattr(args, "trace", False):
+            trace_case_response(case, target_result, int(getattr(args, "trace_limit", 4000) or 0))
         scored = score_case(case, target_result)
         results.append(scored)
         if args.verbose:
@@ -997,6 +1007,52 @@ def run_cases(args: argparse.Namespace, cases: list[dict[str, Any]]) -> int:
     if failed or (review and args.fail_on_review):
         return 1
     return 0
+
+
+def limit_trace_text(text: str, limit: int) -> str:
+    if limit <= 0 or len(text) <= limit:
+        return text
+    omitted = len(text) - limit
+    return f"{text[:limit]}\n[trace truncated: {omitted} characters omitted]"
+
+
+def render_case_input(case: dict[str, Any], provider: str, browser_config: dict[str, Any]) -> str:
+    if provider == "browser":
+        return browser_prompt_for_case(case, browser_config)
+
+    sections = [f"User prompt:\n{case.get('user_prompt', '')}".rstrip()]
+    documents = case.get("documents", []) or []
+    if documents:
+        for index, document in enumerate(documents, start=1):
+            sections.append(
+                "\n".join(
+                    [
+                        f"Document {index}: {document.get('title', 'Untitled')}",
+                        str(document.get("content", "")),
+                    ]
+                ).rstrip()
+            )
+    return "\n\n---\n\n".join(sections)
+
+
+def trace_case_start(case: dict[str, Any], provider: str, browser_config: dict[str, Any], limit: int) -> None:
+    case_id = case.get("id", "case")
+    case_name = case.get("name", "")
+    print(f"\n--- TRACE {case_id} input start ---", flush=True)
+    if case_name:
+        print(f"Case: {case_name}", flush=True)
+    print(f"Provider: {provider}", flush=True)
+    print(limit_trace_text(render_case_input(case, provider, browser_config), limit), flush=True)
+    print(f"--- TRACE {case_id} input end ---", flush=True)
+
+
+def trace_case_response(case: dict[str, Any], result: TargetResult, limit: int) -> None:
+    case_id = case.get("id", "case")
+    print(f"--- TRACE {case_id} response start ---", flush=True)
+    if result.error:
+        print(f"Target error: {result.error}", flush=True)
+    print(limit_trace_text(result.text or "", limit), flush=True)
+    print(f"--- TRACE {case_id} response end ---\n", flush=True)
 
 
 def claude_code_command(args: argparse.Namespace) -> str:
@@ -1028,6 +1084,8 @@ def run_claude_code(args: argparse.Namespace) -> int:
         report=args.report,
         fail_on_review=args.fail_on_review,
         verbose=not args.quiet,
+        trace=args.trace,
+        trace_limit=args.trace_limit,
         cases_name=f"claude-code_{args.suite}{'_mutations' if args.mutations else ''}",
     )
     return run_cases(run_args, cases)

@@ -82,6 +82,15 @@ Run indirect prompt injection against Claude Code:
 sentinelprobe claude-code --suite indirect --mutations
 ```
 
+Watch prompts and responses during a scan:
+
+```bash
+sentinelprobe claude-code --suite indirect --mutations --trace
+sentinelprobe run --cases direct-basic --provider mock --trace
+```
+
+Use `--trace-limit 0` to print full traced inputs and responses. The default trace limit is 4000 characters per input or response.
+
 Show copy-ready examples:
 
 ```bash
