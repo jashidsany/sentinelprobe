@@ -90,11 +90,11 @@ def create_parser() -> argparse.ArgumentParser:
     run.add_argument("--report", help="Report path. Defaults to reports/<provider>_<cases>_<timestamp>.json.")
     run.add_argument("--mutations", action="store_true", help="Add deterministic variants for cases that define mutations.")
     run.add_argument("--fail-on-review", action="store_true", help="Return non-zero when any case needs review.")
-    run.add_argument("--verbose", action="store_true")
+    run.add_argument("--verbose", action="store_true", help="Show each case status plus outlined prompt and response text.")
     run.add_argument("--show-findings", action="store_true", help="Print full finding details for each non-pass case during the run.")
     run.add_argument("--only-findings", action="store_true", help="With --verbose, hide passing case lines and show only review/fail cases.")
-    run.add_argument("--trace", action="store_true", help="Print each case input and target response while the run is active.")
-    run.add_argument("--trace-limit", type=int, default=4000, help="Maximum characters per traced input or response. Use 0 for no limit.")
+    run.add_argument("--trace", action="store_true", help="Compatibility alias for terminal prompt and response output. Prefer --verbose.")
+    run.add_argument("--trace-limit", type=int, default=4000, help="Maximum characters per printed prompt or response. Use 0 for no limit.")
     run.add_argument("--trace-file", help="Write full case inputs and target responses to this text file.")
 
     claude_code = subparsers.add_parser("claude-code", help="Run Claude Code with response-only defaults.")
@@ -107,12 +107,12 @@ def create_parser() -> argparse.ArgumentParser:
     claude_code.add_argument("--report", help="Report path. Defaults to reports/claude-code_<suite>_<timestamp>.json.")
     claude_code.add_argument("--mutations", action="store_true", help="Add deterministic variants for cases that define mutations.")
     claude_code.add_argument("--fail-on-review", action="store_true", help="Return non-zero when any case needs review.")
-    claude_code.add_argument("--verbose", action="store_true", help="Show per-case status lines. This is already the default unless --quiet is used.")
+    claude_code.add_argument("--verbose", action="store_true", help="Show each case status plus outlined prompt and response text.")
     claude_code.add_argument("--quiet", action="store_true", help="Hide per-case status lines.")
     claude_code.add_argument("--show-findings", action="store_true", help="Print full finding details for each non-pass case during the run.")
     claude_code.add_argument("--only-findings", action="store_true", help="Hide passing case lines and show only review/fail cases.")
-    claude_code.add_argument("--trace", action="store_true", help="Print each case input and Claude Code response while the run is active.")
-    claude_code.add_argument("--trace-limit", type=int, default=4000, help="Maximum characters per traced input or response. Use 0 for no limit.")
+    claude_code.add_argument("--trace", action="store_true", help="Compatibility alias for terminal prompt and response output. Prefer --verbose.")
+    claude_code.add_argument("--trace-limit", type=int, default=4000, help="Maximum characters per printed prompt or response. Use 0 for no limit.")
     claude_code.add_argument("--trace-file", help="Write full case inputs and Claude Code responses to this text file.")
 
     list_cases = subparsers.add_parser("list-cases", help="List loaded cases.")
@@ -888,10 +888,10 @@ def print_examples(target: str) -> None:
         ],
         "indirect": [
             "Indirect prompt injection with generated variants:",
-            "sentinelprobe run --cases indirect --mutations --provider mock --verbose --trace",
+            "sentinelprobe run --cases indirect --mutations --provider mock --verbose",
             "",
             "Claude Code indirect prompt injection with generated variants:",
-            "sentinelprobe claude-code --suite indirect --mutations --only-findings",
+            "sentinelprobe claude-code --suite indirect --mutations --verbose --only-findings",
         ],
         "http": [
             "Approved HTTP endpoint:",
@@ -1042,6 +1042,7 @@ def run_wizard(color_mode: str = "auto") -> int:
         report=report,
         fail_on_review=False,
         verbose=verbose,
+        compact_status=False,
         show_findings=False,
         only_findings=False,
         trace=False,
@@ -1073,7 +1074,8 @@ def run_cases(args: argparse.Namespace, cases: list[dict[str, Any]]) -> int:
     results = []
     try:
         for case in cases:
-            if getattr(args, "trace", False):
+            pre_response_trace = getattr(args, "trace", False) and not getattr(args, "verbose", False)
+            if pre_response_trace:
                 trace_case_start(case, args.provider, browser_config, int(getattr(args, "trace_limit", 4000) or 0), sys.stdout, color)
             if trace_handle:
                 trace_case_start(case, args.provider, browser_config, 0, trace_handle, False)
@@ -1085,19 +1087,31 @@ def run_cases(args: argparse.Namespace, cases: list[dict[str, Any]]) -> int:
                 target_result = call_browser(case, browser_config, args.headed, args.slow_mo, args.timeout)
             else:
                 target_result = call_command(case, args.command, args.timeout)
-            if getattr(args, "trace", False):
+            if pre_response_trace:
                 trace_case_response(case, target_result, int(getattr(args, "trace_limit", 4000) or 0), sys.stdout, color)
             if trace_handle:
                 trace_case_response(case, target_result, 0, trace_handle, False)
                 trace_handle.flush()
             scored = score_case(case, target_result)
             results.append(scored)
-            if args.verbose and not (getattr(args, "only_findings", False) and scored["status"] == "pass"):
+            show_case_status = getattr(args, "verbose", False) or getattr(args, "compact_status", False)
+            hide_passing = getattr(args, "only_findings", False) and scored["status"] == "pass"
+            if show_case_status and not hide_passing:
                 status = str(scored["status"])
                 findings = scored.get("findings", [])
                 summary = compact_findings_summary(findings, color)
                 suffix = f"  {summary}" if summary else ""
                 print(f"{severity_label(status, color)} {scored['id']}: {status_text(status, color)} ({scored['elapsed_ms']} ms){suffix}")
+                if getattr(args, "verbose", False):
+                    print_verbose_case_io(
+                        case,
+                        args.provider,
+                        browser_config,
+                        target_result,
+                        int(getattr(args, "trace_limit", 4000) or 0),
+                        sys.stdout,
+                        color,
+                    )
                 if getattr(args, "show_findings", False):
                     for finding in findings:
                         print(f"  - {finding_label(finding, color)} {finding.get('check')}: {finding.get('detail')}")
@@ -1166,6 +1180,36 @@ def render_case_input(case: dict[str, Any], provider: str, browser_config: dict[
     return "\n\n---\n\n".join(sections)
 
 
+def print_verbose_case_io(
+    case: dict[str, Any],
+    provider: str,
+    browser_config: dict[str, Any],
+    result: TargetResult,
+    limit: int,
+    stream: Any,
+    color: bool,
+) -> None:
+    case_id = case.get("id", "case")
+    case_name = case.get("name", "")
+    print("  Prompt outline", file=stream, flush=True)
+    if case_name:
+        print(f"    Case: {case_name}", file=stream, flush=True)
+    print(f"    Provider: {provider}", file=stream, flush=True)
+    print(indent_block(limit_trace_text(render_case_input(case, provider, browser_config), limit), "    "), file=stream, flush=True)
+    print("  Response outline", file=stream, flush=True)
+    if result.error:
+        print(f"    {tagged_label('WARN', color)} Target error: {result.error}", file=stream, flush=True)
+    response = result.text or ""
+    if not response:
+        response = "[empty response]"
+    print(indent_block(limit_trace_text(response, limit), "    "), file=stream, flush=True)
+    print(f"  End {case_id}", file=stream, flush=True)
+
+
+def indent_block(text: str, prefix: str) -> str:
+    return "\n".join(f"{prefix}{line}" if line else prefix.rstrip() for line in text.splitlines())
+
+
 def trace_case_start(
     case: dict[str, Any],
     provider: str,
@@ -1221,7 +1265,8 @@ def run_claude_code(args: argparse.Namespace) -> int:
         timeout=args.timeout,
         report=args.report,
         fail_on_review=args.fail_on_review,
-        verbose=args.verbose or not args.quiet,
+        verbose=args.verbose,
+        compact_status=not args.quiet,
         show_findings=args.show_findings,
         only_findings=args.only_findings,
         trace=args.trace,

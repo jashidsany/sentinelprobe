@@ -98,19 +98,19 @@ sentinelprobe claude-code --suite indirect --mutations
 Watch prompts and responses during a scan:
 
 ```bash
-sentinelprobe claude-code --suite indirect --mutations --trace
-sentinelprobe run --cases direct-basic --provider mock --trace
+sentinelprobe claude-code --suite indirect --mutations --verbose
+sentinelprobe run --cases direct-basic --provider mock --verbose
 ```
 
-Use `--trace-limit 0` to print full traced inputs and responses. The default trace limit is 4000 characters per input or response.
+Verbose mode prints each case status, an outlined prompt, and the target response. Use `--trace-limit 0` to print full prompts and responses. The default limit is 4000 characters per prompt or response.
 
 For readable terminal output plus a full prompt/response log, write trace output to a file:
 
 ```bash
-sentinelprobe claude-code --suite indirect --mutations --only-findings --trace-file reports/claude_code_indirect_trace.txt
+sentinelprobe claude-code --suite indirect --mutations --verbose --only-findings --trace-file reports/claude_code_indirect_trace.txt
 ```
 
-Normal verbose output is compact: each case gets one status line with tag counts. `claude-code` shows per-case status by default and also accepts `--verbose` for consistency with `run`. Add `--only-findings` to hide passing cases, or `--show-findings` to print full finding details during the run. Full prompt and response text stays behind `--trace`.
+`claude-code` shows compact per-case status by default unless `--quiet` is used. Add `--verbose` to show prompts and responses, `--only-findings` to hide passing cases, or `--show-findings` to print full finding details during the run. `--trace-file` always writes the full untruncated prompt and response log.
 
 Show copy-ready examples:
 
