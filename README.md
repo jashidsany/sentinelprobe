@@ -80,7 +80,7 @@ sentinelprobe claude-code
 Run the advanced direct suite against Claude Code:
 
 ```bash
-sentinelprobe claude-code --suite direct-advanced
+sentinelprobe claude-code --test direct-advanced
 ```
 
 Run indirect prompt injection tests with generated variants:
@@ -92,19 +92,19 @@ sentinelprobe run --cases indirect --mutations --provider mock --verbose
 Run indirect prompt injection against Claude Code:
 
 ```bash
-sentinelprobe claude-code --suite indirect --mutations
+sentinelprobe claude-code --test indirect --mutations
 ```
 
 Run file-based indirect prompt injection against Claude Code:
 
 ```bash
-sentinelprobe claude-code --suite indirect --mutations --agent-files --verbose --only-findings
+sentinelprobe claude-code --test indirect --mutations --agent-files --verbose --only-findings
 ```
 
 Watch prompts and responses during a scan:
 
 ```bash
-sentinelprobe claude-code --suite indirect --mutations --verbose
+sentinelprobe claude-code --test indirect --mutations --verbose
 sentinelprobe run --cases direct-basic --provider mock --verbose
 ```
 
@@ -113,7 +113,7 @@ Verbose mode prints each case status, the prompt, and the target response. Use `
 For readable terminal output plus a full prompt/response log, write trace output to a file:
 
 ```bash
-sentinelprobe claude-code --suite indirect --mutations --verbose --only-findings --trace-file reports/claude_code_indirect_trace.txt
+sentinelprobe claude-code --test indirect --mutations --verbose --only-findings --trace-file reports/claude_code_indirect_trace.txt
 ```
 
 `claude-code` shows compact per-case status by default unless `--quiet` is used. Add `--verbose` to show prompts and responses, `--only-findings` to hide passing cases, or `--show-findings` to print full finding details during the run. `--trace-file` always writes the full untruncated prompt and response log.
@@ -167,7 +167,7 @@ The simplest Claude Code command is:
 sentinelprobe claude-code
 ```
 
-By default this runs `--suite direct`, `--model sonnet`, `--budget 0.25`, `--timeout 180`, and writes a timestamped report under `reports/`.
+By default this runs `--test direct`, `--model sonnet`, `--budget 0.25`, `--timeout 180`, and writes a timestamped report under `reports/`.
 
 ```bash
 sentinelprobe run \
@@ -182,13 +182,13 @@ sentinelprobe run \
 Run only the advanced direct prompt injection suite:
 
 ```bash
-sentinelprobe claude-code --suite direct-advanced
+sentinelprobe claude-code --test direct-advanced
 ```
 
 Run file-based indirect prompt injection against Claude Code:
 
 ```bash
-sentinelprobe claude-code --suite indirect --mutations --agent-files --verbose --only-findings
+sentinelprobe claude-code --test indirect --mutations --agent-files --verbose --only-findings
 ```
 
 This writes each case into a disposable per-case directory under the Claude Code wrapper workdir and asks Claude Code to inspect `test_documents/`. Use this mode for coding-agent file/source handling checks. Use the default indirect run for inline retrieved-content checks.
