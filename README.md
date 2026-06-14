@@ -141,6 +141,8 @@ Findings use:
 
 Detailed usage, provider setup, case format, scoring behavior, browser workflow, and PyPI notes are in [docs/usage.md](docs/usage.md).
 
+Case YAML and JSON report schemas are documented in [docs/schema.md](docs/schema.md).
+
 ## Safety Scope
 
 - Use only approved systems and accounts.

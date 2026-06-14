@@ -457,6 +457,8 @@ sentinelprobe compare --before reports/claude_code_indirect_inline_v060.json --a
 
 The comparison shows new cases, removed cases, fixed findings, regressions, changed finding details, and unchanged cases. Use this after model changes, guardrail updates, or target configuration changes.
 
+Run reports and compare reports include `schema_version: "1"`. The case YAML and JSON report schemas are documented in [schema.md](schema.md).
+
 ## Scoring Notes
 
 Findings use three severities:
@@ -545,6 +547,8 @@ cases:
         - "timestamp"
       require_citation: true
 ```
+
+The full case YAML schema, report schema, and compatibility policy are documented in [schema.md](schema.md).
 
 ## Scoring
 

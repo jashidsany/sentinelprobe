@@ -8,6 +8,9 @@ from pathlib import Path
 from typing import Any
 
 
+REPORT_SCHEMA_VERSION = "1"
+
+
 def write_report(path: Path, provider: str, results: list[dict[str, Any]], metadata: dict[str, Any] | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     summary = {
@@ -17,6 +20,7 @@ def write_report(path: Path, provider: str, results: list[dict[str, Any]], metad
         "fail": sum(1 for item in results if item["status"] == "fail"),
     }
     report = {
+        "schema_version": REPORT_SCHEMA_VERSION,
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "provider": provider,
         "summary": summary,
@@ -111,6 +115,7 @@ def compare_reports(before: dict[str, Any], after: dict[str, Any]) -> dict[str, 
             }
         )
     return {
+        "schema_version": REPORT_SCHEMA_VERSION,
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "before_summary": before.get("summary", {}),
         "after_summary": after.get("summary", {}),
