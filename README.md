@@ -110,7 +110,7 @@ For readable terminal output plus a full prompt/response log, write trace output
 sentinelprobe claude-code --suite indirect --mutations --only-findings --trace-file reports/claude_code_indirect_trace.txt
 ```
 
-Normal verbose output is compact: each case gets one status line with tag counts. Add `--only-findings` to hide passing cases, or `--show-findings` to print full finding details during the run. Full prompt and response text stays behind `--trace`.
+Normal verbose output is compact: each case gets one status line with tag counts. `claude-code` shows per-case status by default and also accepts `--verbose` for consistency with `run`. Add `--only-findings` to hide passing cases, or `--show-findings` to print full finding details during the run. Full prompt and response text stays behind `--trace`.
 
 Show copy-ready examples:
 

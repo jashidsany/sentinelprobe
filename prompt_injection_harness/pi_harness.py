@@ -107,6 +107,7 @@ def create_parser() -> argparse.ArgumentParser:
     claude_code.add_argument("--report", help="Report path. Defaults to reports/claude-code_<suite>_<timestamp>.json.")
     claude_code.add_argument("--mutations", action="store_true", help="Add deterministic variants for cases that define mutations.")
     claude_code.add_argument("--fail-on-review", action="store_true", help="Return non-zero when any case needs review.")
+    claude_code.add_argument("--verbose", action="store_true", help="Show per-case status lines. This is already the default unless --quiet is used.")
     claude_code.add_argument("--quiet", action="store_true", help="Hide per-case status lines.")
     claude_code.add_argument("--show-findings", action="store_true", help="Print full finding details for each non-pass case during the run.")
     claude_code.add_argument("--only-findings", action="store_true", help="Hide passing case lines and show only review/fail cases.")
@@ -1220,7 +1221,7 @@ def run_claude_code(args: argparse.Namespace) -> int:
         timeout=args.timeout,
         report=args.report,
         fail_on_review=args.fail_on_review,
-        verbose=not args.quiet,
+        verbose=args.verbose or not args.quiet,
         show_findings=args.show_findings,
         only_findings=args.only_findings,
         trace=args.trace,
