@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -38,6 +39,14 @@ CASE_SUITES = {
     ],
 }
 
+SUITE_DESCRIPTIONS = {
+    "builtin": "All bundled cases.",
+    "direct": "Basic plus advanced direct prompt injection.",
+    "direct-basic": "Basic direct prompt injection.",
+    "direct-advanced": "Advanced direct prompt injection.",
+    "direct-prompt-injection": "Compatibility alias for direct.",
+}
+
 
 @dataclass
 class TargetResult:
@@ -65,9 +74,20 @@ def create_parser() -> argparse.ArgumentParser:
     run.add_argument("--headed", action="store_true", help="Show browser window for --provider browser.")
     run.add_argument("--slow-mo", type=int, default=0, help="Playwright slow motion delay in milliseconds.")
     run.add_argument("--timeout", type=int, default=45)
-    run.add_argument("--report", default="prompt_injection_harness/reports/report.json")
+    run.add_argument("--report", help="Report path. Defaults to reports/<provider>_<cases>_<timestamp>.json.")
     run.add_argument("--fail-on-review", action="store_true", help="Return non-zero when any case needs review.")
     run.add_argument("--verbose", action="store_true")
+
+    claude_code = subparsers.add_parser("claude-code", help="Run Claude Code with response-only defaults.")
+    claude_code.add_argument("--suite", default="direct", help="Suite alias or case path. Default: direct.")
+    claude_code.add_argument("--model", default="sonnet", help="Claude model alias passed to claude-code-wrapper. Default: sonnet.")
+    claude_code.add_argument("--budget", default="0.25", help="Max Claude Code budget in USD. Default: 0.25.")
+    claude_code.add_argument("--mode", choices=["response-only", "agent-sandbox"], default="response-only")
+    claude_code.add_argument("--workdir", help="Disposable workdir for --mode agent-sandbox.")
+    claude_code.add_argument("--timeout", type=int, default=180)
+    claude_code.add_argument("--report", help="Report path. Defaults to reports/claude-code_<suite>_<timestamp>.json.")
+    claude_code.add_argument("--fail-on-review", action="store_true", help="Return non-zero when any case needs review.")
+    claude_code.add_argument("--quiet", action="store_true", help="Hide per-case status lines.")
 
     list_cases = subparsers.add_parser("list-cases", help="List loaded cases.")
     list_cases.add_argument("--cases", required=True, help="YAML case file, case directory, or suite alias such as 'builtin' or 'direct'.")
@@ -89,6 +109,8 @@ def create_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("banner", help="Print the SentinelProbe banner.")
     subparsers.add_parser("list-suites", help="List bundled case suite aliases.")
+    examples = subparsers.add_parser("examples", help="Print copy-ready example commands.")
+    examples.add_argument("target", nargs="?", choices=["all", "claude-code", "mock", "http", "browser"], default="all")
     subparsers.add_parser("wizard", help="Interactive setup for common test runs.")
 
     return parser
@@ -157,6 +179,16 @@ def resolve_cases_path(raw_path: str) -> list[Path]:
             return [package_root() / item for item in target]
         return [package_root() / target]
     return [Path(raw_path)]
+
+
+def slugify(value: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", value.strip()).strip("-")
+    return slug or "cases"
+
+
+def default_report_path(provider: str, cases_name: str) -> Path:
+    timestamp = time.strftime("%Y%m%d_%H%M%S", time.localtime())
+    return Path("reports") / f"{slugify(provider)}_{slugify(cases_name)}_{timestamp}.json"
 
 
 def load_case_files(path: Path) -> list[Path]:
@@ -252,13 +284,7 @@ def init_project(output: Path, force: bool) -> None:
                     "Claude Code response-only run:",
                     "",
                     "```bash",
-                    "sentinelprobe run \\",
-                    "  --cases cases \\",
-                    "  --provider command \\",
-                    "  --command 'claude-code-wrapper --mode response-only --max-budget-usd 0.25' \\",
-                    "  --timeout 180 \\",
-                    "  --report reports/claude_code_report.json \\",
-                    "  --verbose",
+                    "sentinelprobe claude-code --suite direct",
                     "```",
                     "",
                 ]
@@ -675,7 +701,38 @@ def print_suites() -> None:
             display = ", ".join(target)
         else:
             display = target
-        print(f"{name:<24} {display}")
+        count = len(load_cases(resolve_cases_path(name)))
+        description = SUITE_DESCRIPTIONS.get(name, "")
+        print(f"{name:<24} {count:>3} cases  {description}  [{display}]")
+
+
+def print_examples(target: str) -> None:
+    examples = {
+        "claude-code": [
+            "Claude Code direct prompt injection:",
+            "sentinelprobe claude-code",
+            "",
+            "Claude Code advanced direct prompt injection:",
+            "sentinelprobe claude-code --suite direct-advanced",
+        ],
+        "mock": [
+            "Local mock baseline:",
+            "sentinelprobe run --cases direct --provider mock --verbose",
+        ],
+        "http": [
+            "Approved HTTP endpoint:",
+            "sentinelprobe run --cases direct --provider http --endpoint http://127.0.0.1:8080/ask --header 'Authorization: Bearer TEST_TOKEN'",
+        ],
+        "browser": [
+            "Browser target after configuring selectors:",
+            "sentinelprobe run --cases direct --provider browser --browser-config prompt_injection_harness/browser_targets/claude_template.json --timeout 180",
+        ],
+    }
+    selected = examples.keys() if target == "all" else [target]
+    for index, key in enumerate(selected):
+        if index:
+            print()
+        print("\n".join(examples[key]))
 
 
 def summarize_report(path: Path, plain: bool = False) -> int:
@@ -839,7 +896,8 @@ def run_cases(args: argparse.Namespace, cases: list[dict[str, Any]]) -> int:
         if args.verbose:
             print(f"{scored['id']}: {scored['status']} ({scored['elapsed_ms']} ms)")
 
-    report_path = Path(args.report)
+    cases_name = getattr(args, "cases_name", None) or getattr(args, "cases", "cases")
+    report_path = Path(args.report) if args.report else default_report_path(args.provider, str(cases_name))
     write_report(report_path, args.provider, results)
 
     failed = sum(1 for item in results if item["status"] == "fail")
@@ -851,6 +909,40 @@ def run_cases(args: argparse.Namespace, cases: list[dict[str, Any]]) -> int:
     if failed or (review and args.fail_on_review):
         return 1
     return 0
+
+
+def claude_code_command(args: argparse.Namespace) -> str:
+    command = [
+        "claude-code-wrapper",
+        "--mode",
+        args.mode,
+        "--model",
+        args.model,
+        "--max-budget-usd",
+        str(args.budget),
+    ]
+    if args.workdir:
+        command.extend(["--workdir", args.workdir])
+    return shlex.join(command)
+
+
+def run_claude_code(args: argparse.Namespace) -> int:
+    cases = load_cases(resolve_cases_path(args.suite))
+    run_args = argparse.Namespace(
+        provider="command",
+        endpoint=None,
+        header=[],
+        command=claude_code_command(args),
+        browser_config=None,
+        headed=False,
+        slow_mo=0,
+        timeout=args.timeout,
+        report=args.report,
+        fail_on_review=args.fail_on_review,
+        verbose=not args.quiet,
+        cases_name=f"claude-code_{args.suite}",
+    )
+    return run_cases(run_args, cases)
 
 
 def main() -> int:
@@ -872,6 +964,13 @@ def main() -> int:
         print_suites()
         return 0
 
+    if args.command_name == "examples":
+        print_examples(args.target)
+        return 0
+
+    if args.command_name == "claude-code":
+        return run_claude_code(args)
+
     if args.command_name == "wizard":
         return run_wizard(args.color)
 
@@ -888,6 +987,7 @@ def main() -> int:
         return summarize_report(Path(args.report), args.plain)
 
     cases = load_cases(resolve_cases_path(args.cases))
+    args.cases_name = args.cases
 
     if args.command_name == "list-cases":
         print_case_catalog(cases)

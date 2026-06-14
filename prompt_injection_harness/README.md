@@ -71,6 +71,25 @@ Run the direct prompt injection suite:
 sentinelprobe run --cases direct --provider mock --report reports/direct_mock_report.json --verbose
 ```
 
+Run Claude Code with response-only defaults:
+
+```bash
+sentinelprobe claude-code
+```
+
+Run the advanced direct suite against Claude Code:
+
+```bash
+sentinelprobe claude-code --suite direct-advanced
+```
+
+Show copy-ready examples:
+
+```bash
+sentinelprobe examples
+sentinelprobe examples claude-code
+```
+
 Direct suite aliases:
 
 - `direct-basic`: 10 basic direct prompt injection cases.
@@ -258,6 +277,14 @@ sentinelprobe run \
 Run against Claude Code CLI:
 
 ```bash
+sentinelprobe claude-code
+```
+
+By default this runs `--suite direct`, `--model sonnet`, `--budget 0.25`, `--timeout 180`, and writes a timestamped report under `reports/`.
+
+The equivalent explicit command is:
+
+```bash
 sentinelprobe run \
   --cases direct \
   --provider command \
@@ -270,13 +297,7 @@ sentinelprobe run \
 Run only the advanced direct prompt injection suite against Claude Code CLI:
 
 ```bash
-sentinelprobe run \
-  --cases direct-advanced \
-  --provider command \
-  --command 'claude-code-wrapper --mode response-only --model sonnet --max-budget-usd 0.25' \
-  --timeout 180 \
-  --report reports/claude_code_direct_advanced_report.json \
-  --verbose
+sentinelprobe claude-code --suite direct-advanced
 ```
 
 The wrapper uses `claude --print --output-format json --no-session-persistence` and disables tools in `response-only` mode. This is the recommended first pass because it tests whether Claude follows malicious retrieved instructions without letting it edit files or run commands.
