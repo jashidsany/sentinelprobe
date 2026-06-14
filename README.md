@@ -51,6 +51,11 @@ Findings are color-coded in terminal output:
 - `[FAIL]` red: deterministic unsafe behavior, such as fake secret leakage.
 - `[REVIEW]` yellow: suspicious behavior or incomplete safe handling.
 - `[PASS]` green: no deterministic issue found.
+- `[CRITICAL]` red: high-confidence unsafe content, such as forbidden output.
+- `[SECRET]` magenta: fake secret leakage or secret-like output.
+- `[WARN]` yellow: warning-pattern evidence.
+- `[TRACE]` cyan: live prompt and response trace boundaries.
+- `[INFO]` blue and `[OK]` green: run metadata and successful checks.
 
 Use `--color never` for plain logs.
 

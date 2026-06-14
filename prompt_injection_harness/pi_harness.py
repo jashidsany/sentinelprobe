@@ -175,14 +175,48 @@ def severity_color(severity: str) -> str:
     }.get(severity, "0")
 
 
-def severity_label(severity: str, color: bool | None = None) -> str:
-    normalized = str(severity).lower()
-    label = f"[{normalized.upper()}]"
+def tag_color(tag: str) -> str:
+    return {
+        "INFO": "34;1",
+        "OK": "32;1",
+        "WARN": "33;1",
+        "TRACE": "36;1",
+        "SECRET": "35;1",
+        "CRITICAL": "31;1",
+        "PASS": "32;1",
+        "REVIEW": "33;1",
+        "FAIL": "31;1",
+    }.get(tag, "0")
+
+
+def tagged_label(tag: str, color: bool | None = None) -> str:
+    normalized = str(tag).upper()
+    label = f"[{normalized}]"
     if color is None:
         color = use_color()
-    if color and normalized in {"pass", "review", "fail"}:
-        return colorize(label, severity_color(normalized))
+    if color:
+        return colorize(label, tag_color(normalized))
     return label
+
+
+def severity_label(severity: str, color: bool | None = None) -> str:
+    normalized = str(severity).lower()
+    if normalized in {"pass", "review", "fail"}:
+        return tagged_label(normalized.upper(), color)
+    return tagged_label(normalized, color)
+
+
+def finding_label(finding: dict[str, Any], color: bool | None = None) -> str:
+    check = str(finding.get("check", "finding"))
+    severity = str(finding.get("severity", "review"))
+    detail = str(finding.get("detail", ""))
+    if check == "fake_secret_leak" or re.search(r"FAKE_[A-Z0-9_]{8,}", detail):
+        return tagged_label("SECRET", color)
+    if severity == "fail" and check in {"forbidden_pattern", "forbidden_regex"}:
+        return tagged_label("CRITICAL", color)
+    if check.startswith("warning_"):
+        return tagged_label("WARN", color)
+    return severity_label(severity, color)
 
 
 def status_text(status: str, color: bool | None = None) -> str:
@@ -862,7 +896,7 @@ def summarize_report(path: Path, plain: bool = False) -> int:
     report = load_json(path)
     summary = report.get("summary", {})
     color = use_color()
-    print(f"Report: {path}")
+    print(f"{tagged_label('INFO', color)} Report: {path}")
     if plain:
         print(
             "Summary: "
@@ -879,8 +913,7 @@ def summarize_report(path: Path, plain: bool = False) -> int:
         status = str(result.get("status", "review"))
         print(f"{severity_label(status, color)} {result.get('id')}: {status_text(status, color)}")
         for finding in result.get("findings", []):
-            severity = str(finding.get("severity", status))
-            print(f"  - {severity_label(severity, color)} {finding.get('check')}: {finding.get('detail')}")
+            print(f"  - {finding_label(finding, color)} {finding.get('check')}: {finding.get('detail')}")
     return 0
 
 
@@ -1030,8 +1063,7 @@ def run_cases(args: argparse.Namespace, cases: list[dict[str, Any]]) -> int:
             status = str(scored["status"])
             print(f"{severity_label(status, color)} {scored['id']}: {status_text(status, color)} ({scored['elapsed_ms']} ms)")
             for finding in scored.get("findings", []):
-                severity = str(finding.get("severity", status))
-                print(f"  - {severity_label(severity, color)} {finding.get('check')}: {finding.get('detail')}")
+                print(f"  - {finding_label(finding, color)} {finding.get('check')}: {finding.get('detail')}")
 
     cases_name = getattr(args, "cases_name", None) or getattr(args, "cases", "cases")
     report_path = Path(args.report) if args.report else default_report_path(args.provider, str(cases_name))
@@ -1040,7 +1072,7 @@ def run_cases(args: argparse.Namespace, cases: list[dict[str, Any]]) -> int:
     failed = sum(1 for item in results if item["status"] == "fail")
     review = sum(1 for item in results if item["status"] == "review")
     passed = sum(1 for item in results if item["status"] == "pass")
-    print(f"Report: {report_path}")
+    print(f"{tagged_label('INFO', color)} Report: {report_path}")
     print_summary_graph({"pass": passed, "review": review, "fail": failed, "total": len(results)}, color=color)
 
     if failed or (review and args.fail_on_review):
@@ -1077,21 +1109,23 @@ def render_case_input(case: dict[str, Any], provider: str, browser_config: dict[
 def trace_case_start(case: dict[str, Any], provider: str, browser_config: dict[str, Any], limit: int) -> None:
     case_id = case.get("id", "case")
     case_name = case.get("name", "")
-    print(f"\n--- TRACE {case_id} input start ---", flush=True)
+    color = use_color()
+    print(f"\n{tagged_label('TRACE', color)} {case_id} input start", flush=True)
     if case_name:
         print(f"Case: {case_name}", flush=True)
     print(f"Provider: {provider}", flush=True)
     print(limit_trace_text(render_case_input(case, provider, browser_config), limit), flush=True)
-    print(f"--- TRACE {case_id} input end ---", flush=True)
+    print(f"{tagged_label('TRACE', color)} {case_id} input end", flush=True)
 
 
 def trace_case_response(case: dict[str, Any], result: TargetResult, limit: int) -> None:
     case_id = case.get("id", "case")
-    print(f"--- TRACE {case_id} response start ---", flush=True)
+    color = use_color()
+    print(f"{tagged_label('TRACE', color)} {case_id} response start", flush=True)
     if result.error:
-        print(f"Target error: {result.error}", flush=True)
+        print(f"{tagged_label('WARN', color)} Target error: {result.error}", flush=True)
     print(limit_trace_text(result.text or "", limit), flush=True)
-    print(f"--- TRACE {case_id} response end ---\n", flush=True)
+    print(f"{tagged_label('TRACE', color)} {case_id} response end\n", flush=True)
 
 
 def claude_code_command(args: argparse.Namespace) -> str:
@@ -1185,7 +1219,7 @@ def main() -> int:
             for error in errors:
                 print(f"- {error}")
             return 1
-        print(f"Case validation passed: {len(cases)} cases")
+        print(f"{tagged_label('OK')} Case validation passed: {len(cases)} cases")
         return 0
 
     return run_cases(args, cases)
