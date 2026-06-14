@@ -9,23 +9,21 @@ import os
 import re
 import shlex
 import shutil
-import subprocess
 import sys
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from prompt_injection_harness.compare import compare_reports_command
+from prompt_injection_harness.doctor import run_doctor
 from prompt_injection_harness.html_reports import (
-    resolve_compare_html_path,
     resolve_html_report_path,
-    write_compare_html,
     write_html_report,
 )
-from prompt_injection_harness.reports import compare_reports, load_json, write_report
+from prompt_injection_harness.reports import load_json, write_report
 from prompt_injection_harness.cases import (
     CASE_SUITES,
     SUITE_DESCRIPTIONS,
@@ -42,7 +40,6 @@ from prompt_injection_harness.providers import (
     call_command,
     call_http,
     call_mock,
-    missing_browser_config_keys,
     render_case_input,
 )
 from prompt_injection_harness.scoring import score_case
@@ -55,13 +52,6 @@ except ImportError:
 
 
 VERBOSE_CASE_SEPARATOR = "-" * 78
-
-
-@dataclass
-class DoctorCheck:
-    status: str
-    name: str
-    detail: str
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -242,11 +232,6 @@ def severity_label(severity: str, color: bool | None = None) -> str:
     return tagged_label(normalized, color)
 
 
-def doctor_label(status: str, color: bool | None = None) -> str:
-    tag = {"ok": "OK", "warn": "WARN", "fail": "FAIL"}.get(status, "WARN")
-    return tagged_label(tag, color)
-
-
 def finding_label(finding: dict[str, Any], color: bool | None = None) -> str:
     check = str(finding.get("check", "finding"))
     severity = str(finding.get("severity", "review"))
@@ -289,20 +274,6 @@ def banner_text(color: bool = False) -> str:
 
 def print_banner(color_mode: str | None = None) -> None:
     print(banner_text(color=use_color(color_mode)))
-
-
-def package_version() -> str:
-    try:
-        from prompt_injection_harness import __version__
-
-        return str(__version__)
-    except Exception:
-        init_file = package_root() / "__init__.py"
-        try:
-            match = re.search(r'__version__\s*=\s*"([^"]+)"', init_file.read_text(encoding="utf-8"))
-        except OSError:
-            match = None
-        return match.group(1) if match else "unknown"
 
 
 def default_report_path(provider: str, cases_name: str) -> Path:
@@ -436,103 +407,6 @@ def print_suites() -> None:
         print(f"{name:<24} {count:>3} cases  {description}  [{display}]")
 
 
-def add_check(checks: list[DoctorCheck], status: str, name: str, detail: str) -> None:
-    checks.append(DoctorCheck(status=status, name=name, detail=detail))
-
-
-def check_writable_directory(path: Path) -> tuple[bool, str]:
-    try:
-        path.mkdir(parents=True, exist_ok=True)
-        probe = path / ".sentinelprobe_write_test"
-        probe.write_text("ok", encoding="utf-8")
-        probe.unlink()
-    except OSError as exc:
-        return False, str(exc)
-    return True, str(path)
-
-
-def run_doctor(target: str = "all", browser_config: str = "", workdir: str = "") -> int:
-    color = use_color()
-    checks: list[DoctorCheck] = []
-
-    add_check(checks, "ok", "Python", sys.version.split()[0])
-    add_check(checks, "ok", "SentinelProbe package", f"version {package_version()}")
-    add_check(checks, "ok" if yaml else "fail", "PyYAML", "available" if yaml else "missing. Install PyYAML.")
-
-    try:
-        builtin_cases = load_cases(resolve_cases_path("builtin"))
-        add_check(checks, "ok", "Bundled cases", f"{len(builtin_cases)} cases loaded")
-    except Exception as exc:
-        add_check(checks, "fail", "Bundled cases", str(exc))
-
-    writable, detail = check_writable_directory(Path("reports"))
-    add_check(checks, "ok" if writable else "fail", "Reports directory", detail if writable else f"not writable: {detail}")
-
-    if target in {"all", "claude-code"}:
-        claude_path = shutil.which("claude")
-        add_check(checks, "ok" if claude_path else "fail", "Claude CLI", claude_path or "not found on PATH")
-        if claude_path:
-            try:
-                completed = subprocess.run(
-                    [claude_path, "--help"],
-                    text=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    timeout=10,
-                    check=False,
-                )
-                detail = "help command returned 0" if completed.returncode == 0 else f"help returned {completed.returncode}"
-                add_check(checks, "ok" if completed.returncode == 0 else "warn", "Claude CLI help", detail)
-            except (OSError, subprocess.TimeoutExpired) as exc:
-                add_check(checks, "warn", "Claude CLI help", str(exc))
-        wrapper_path = shutil.which("claude-code-wrapper")
-        local_wrapper = package_root() / "wrappers" / "claude_code_wrapper.py"
-        if wrapper_path:
-            add_check(checks, "ok", "Claude wrapper", wrapper_path)
-        elif local_wrapper.exists():
-            add_check(checks, "warn", "Claude wrapper", f"console script not on PATH, local wrapper exists at {local_wrapper}")
-        else:
-            add_check(checks, "fail", "Claude wrapper", "claude-code-wrapper not found")
-        if workdir:
-            workdir_path = Path(workdir)
-            if workdir_path.exists() and not workdir_path.is_dir():
-                add_check(checks, "fail", "Claude workdir", f"{workdir_path} exists and is not a directory")
-            else:
-                add_check(checks, "ok", "Claude workdir", f"{workdir_path} can be used as disposable sandbox")
-        add_check(checks, "ok", "Built-in data safety", "bundled cases use fake documents and fake secrets")
-
-    if target in {"all", "browser"}:
-        try:
-            import playwright  # type: ignore  # noqa: F401
-
-            add_check(checks, "ok", "Playwright package", "available")
-        except ImportError:
-            add_check(checks, "warn", "Playwright package", "not installed. Install sentinelprobe[browser] and run playwright install chromium.")
-        config_path = Path(browser_config)
-        if config_path.exists():
-            try:
-                config = load_json(config_path)
-                missing = missing_browser_config_keys(config)
-                if missing:
-                    add_check(checks, "warn", "Browser config", f"{config_path} missing values: {', '.join(missing)}")
-                else:
-                    add_check(checks, "ok", "Browser config", f"{config_path} has required keys")
-            except SystemExit as exc:
-                add_check(checks, "fail", "Browser config", str(exc))
-        else:
-            add_check(checks, "warn", "Browser config", f"{config_path} not found")
-
-    print("Doctor")
-    print("------")
-    for check in checks:
-        print(f"{doctor_label(check.status, color)} {check.name}: {check.detail}")
-
-    fail_count = sum(1 for check in checks if check.status == "fail")
-    warn_count = sum(1 for check in checks if check.status == "warn")
-    print(f"\nSummary: ok={sum(1 for check in checks if check.status == 'ok')} warn={warn_count} fail={fail_count}")
-    return 1 if fail_count else 0
-
-
 def print_examples(target: str) -> None:
     examples = {
         "claude-code": [
@@ -631,62 +505,6 @@ def summarize_report(path: Path, plain: bool = False, html_report: str | None = 
         print(f"{severity_label(status, color)} {result.get('id')}: {status_text(status, color)}")
         for finding in result.get("findings", []):
             print(f"  - {finding_label(finding, color)} {finding.get('check')}: {finding.get('detail')}")
-    return 0
-
-
-def compare_kind_label(kind: str, color: bool | None = None) -> str:
-    tag = {
-        "new": "INFO",
-        "removed": "WARN",
-        "fixed": "OK",
-        "regressed": "FAIL",
-        "changed": "REVIEW",
-        "unchanged": "PASS",
-    }.get(kind, "REVIEW")
-    return tagged_label(tag, color)
-
-
-def compare_reports_command(before_path: Path, after_path: Path, plain: bool = False, html_report: str | None = None) -> int:
-    before = load_json(before_path)
-    after = load_json(after_path)
-    comparison = compare_reports(before, after)
-    color = use_color()
-    html_report_path = resolve_compare_html_path(html_report, before_path, after_path)
-    if html_report_path:
-        write_compare_html(html_report_path, comparison, before_path, after_path)
-
-    summary = comparison["summary"]
-    print(f"{tagged_label('INFO', color)} Before: {before_path}")
-    print(f"{tagged_label('INFO', color)} After: {after_path}")
-    if html_report_path:
-        print(f"{tagged_label('INFO', color)} HTML report: {html_report_path}")
-    if plain:
-        print(
-            "Compare: "
-            f"new={summary.get('new', 0)} "
-            f"removed={summary.get('removed', 0)} "
-            f"fixed={summary.get('fixed', 0)} "
-            f"regressed={summary.get('regressed', 0)} "
-            f"changed={summary.get('changed', 0)} "
-            f"unchanged={summary.get('unchanged', 0)} "
-            f"total={summary.get('total', 0)}"
-        )
-    else:
-        print("Compare")
-        for key in ("new", "removed", "fixed", "regressed", "changed", "unchanged"):
-            print(f"{key:<10} {summary.get(key, 0)}")
-        print(f"total      {summary.get('total', 0)}")
-
-    for change in comparison.get("changes", []):
-        if not isinstance(change, dict) or change.get("kind") == "unchanged":
-            continue
-        kind = str(change.get("kind", "changed"))
-        before_status = change.get("before_status") or "missing"
-        after_status = change.get("after_status") or "missing"
-        print(
-            f"{compare_kind_label(kind, color)} {change.get('id')}: "
-            f"{kind} ({before_status} -> {after_status})"
-        )
     return 0
 
 

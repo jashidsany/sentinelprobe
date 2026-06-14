@@ -19,6 +19,8 @@ if str(ROOT) not in sys.path:
 PYTHON = sys.executable
 CLI = ROOT / "prompt_injection_harness" / "pi_harness.py"
 CASES = ROOT / "prompt_injection_harness" / "cases.py"
+COMPARE = ROOT / "prompt_injection_harness" / "compare.py"
+DOCTOR = ROOT / "prompt_injection_harness" / "doctor.py"
 HTML_REPORTS = ROOT / "prompt_injection_harness" / "html_reports.py"
 PROVIDERS = ROOT / "prompt_injection_harness" / "providers.py"
 REPORTS = ROOT / "prompt_injection_harness" / "reports.py"
@@ -58,6 +60,8 @@ def py_compile() -> None:
             "py_compile",
             str(CLI),
             str(CASES),
+            str(COMPARE),
+            str(DOCTOR),
             str(HTML_REPORTS),
             str(PROVIDERS),
             str(REPORTS),
