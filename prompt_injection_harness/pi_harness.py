@@ -49,6 +49,8 @@ CASE_SUITES = {
         "cases/secret_boundary.yaml",
         "cases/indirect_prompt_injection.yaml",
     ],
+    "agent-files": "cases/agent_file_prompt_injection.yaml",
+    "agent-file-prompt-injection": "cases/agent_file_prompt_injection.yaml",
 }
 
 SUITE_DESCRIPTIONS = {
@@ -59,6 +61,8 @@ SUITE_DESCRIPTIONS = {
     "direct-prompt-injection": "Compatibility alias for direct.",
     "indirect": "Indirect prompt injection in retrieved or supplied content.",
     "indirect-prompt-injection": "Compatibility alias for indirect.",
+    "agent-files": "File-based coding-agent prompt injection cases.",
+    "agent-file-prompt-injection": "Compatibility alias for agent-files.",
 }
 
 VERBOSE_CASE_SEPARATOR = "-" * 78
@@ -170,7 +174,7 @@ def create_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("banner", help="Print the SentinelProbe banner.")
     subparsers.add_parser("list-suites", help="List bundled case suite aliases.")
     examples = subparsers.add_parser("examples", help="Print copy-ready example commands.")
-    examples.add_argument("target", nargs="?", choices=["all", "claude-code", "mock", "indirect", "compare", "doctor", "http", "browser"], default="all")
+    examples.add_argument("target", nargs="?", choices=["all", "claude-code", "mock", "indirect", "agent-files", "compare", "doctor", "http", "browser"], default="all")
     subparsers.add_parser("wizard", help="Interactive setup for common test runs.")
 
     return parser
@@ -510,10 +514,10 @@ def init_project(output: Path, force: bool) -> None:
                     "sentinelprobe claude-code --test direct",
                     "```",
                     "",
-                    "Claude Code file-based indirect run:",
+                    "Claude Code file-based coding-agent run:",
                     "",
                     "```bash",
-                    "sentinelprobe claude-code --test indirect --mutations --agent-files --verbose --only-findings --html-report",
+                    "sentinelprobe claude-code --test agent-files --agent-files --verbose --only-findings --html-report",
                     "```",
                     "",
                     "Compare reports:",
@@ -554,6 +558,18 @@ def call_mock(case: dict[str, Any], timeout: int) -> TargetResult:
         title = str(doc.get("title", "Untitled"))
         citations.append(title)
         content = str(doc.get("content", ""))
+        capture = False
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped.lower().startswith(("business content:", "business rules:")):
+                capture = True
+                continue
+            if capture and stripped:
+                business_lines.append(stripped.lstrip("- "))
+    for file_item in case.get("files", []) or []:
+        path = str(file_item.get("path", "untitled.txt"))
+        citations.append(path)
+        content = str(file_item.get("content", ""))
         capture = False
         for line in content.splitlines():
             stripped = line.strip()
@@ -734,6 +750,7 @@ def public_case_payload(case: dict[str, Any]) -> dict[str, Any]:
         "category": case.get("category"),
         "user_prompt": case.get("user_prompt"),
         "documents": case.get("documents", []),
+        "files": case.get("files", []),
         "metadata": case.get("metadata", {}),
     }
 
@@ -1269,12 +1286,32 @@ def validate_cases(cases: list[dict[str, Any]]) -> list[str]:
             errors.append(f"{case_id or index}: missing user_prompt")
         if not isinstance(case.get("documents", []), list):
             errors.append(f"{case_id or index}: documents must be a list")
+        files = case.get("files", [])
+        if not isinstance(files, list):
+            errors.append(f"{case_id or index}: files must be a list")
+        else:
+            for file_index, file_item in enumerate(files, start=1):
+                if not isinstance(file_item, dict):
+                    errors.append(f"{case_id or index}: file #{file_index} must be an object")
+                    continue
+                file_path = str(file_item.get("path", "")).strip()
+                if not file_path:
+                    errors.append(f"{case_id or index}: file #{file_index} is missing path")
+                elif not is_safe_relative_path(file_path):
+                    errors.append(f"{case_id or index}: unsafe file path {file_path!r}")
+                if "content" not in file_item:
+                    errors.append(f"{case_id or index}: file {file_path or file_index} is missing content")
         if not isinstance(case.get("expectations", {}), dict):
             errors.append(f"{case_id or index}: expectations must be an object")
         expectations = case.get("expectations", {}) or {}
         if isinstance(expectations, dict) and "required_regex" in expectations and not isinstance(expectations.get("required_regex"), list):
             errors.append(f"{case_id or index}: required_regex must be a list")
     return errors
+
+
+def is_safe_relative_path(value: str) -> bool:
+    path = Path(value)
+    return not path.is_absolute() and ".." not in path.parts and str(path).strip() not in {"", "."}
 
 
 def status_bar(label: str, value: int, total: int, width: int = 28, color: bool | None = None) -> str:
@@ -1426,8 +1463,8 @@ def print_examples(target: str) -> None:
             "Claude Code advanced direct prompt injection:",
             "sentinelprobe claude-code --test direct-advanced",
             "",
-            "Claude Code file-based indirect prompt injection:",
-            "sentinelprobe claude-code --test indirect --mutations --agent-files --verbose --only-findings --html-report",
+            "Claude Code file-based coding-agent prompt injection:",
+            "sentinelprobe claude-code --test agent-files --agent-files --verbose --only-findings --html-report",
             "",
             "Claude Code indirect smoke test with five prompts:",
             "sentinelprobe claude-code --test indirect --mutations --limit 5 --verbose --only-findings",
@@ -1443,11 +1480,21 @@ def print_examples(target: str) -> None:
             "Claude Code indirect prompt injection with generated variants:",
             "sentinelprobe claude-code --test indirect --mutations --verbose --only-findings",
             "",
-            "Claude Code file-based indirect prompt injection:",
-            "sentinelprobe claude-code --test indirect --mutations --agent-files --verbose --only-findings --html-report",
+            "Claude Code file-based coding-agent prompt injection:",
+            "sentinelprobe claude-code --test agent-files --agent-files --verbose --only-findings --html-report",
             "",
             "Claude Code indirect smoke test with five prompts:",
             "sentinelprobe claude-code --test indirect --mutations --limit 5 --verbose --only-findings",
+        ],
+        "agent-files": [
+            "Validate file-based coding-agent cases:",
+            "sentinelprobe validate --cases agent-files",
+            "",
+            "Local mock baseline:",
+            "sentinelprobe run --cases agent-files --provider mock --verbose",
+            "",
+            "Claude Code file-based coding-agent run:",
+            "sentinelprobe claude-code --test agent-files --agent-files --verbose --only-findings --html-report",
         ],
         "compare": [
             "Compare two JSON reports:",
@@ -1830,6 +1877,17 @@ def render_case_input(case: dict[str, Any], provider: str, browser_config: dict[
                     [
                         f"Document {index}: {document.get('title', 'Untitled')}",
                         str(document.get("content", "")),
+                    ]
+                ).rstrip()
+            )
+    files = case.get("files", []) or []
+    if files:
+        for index, file_item in enumerate(files, start=1):
+            sections.append(
+                "\n".join(
+                    [
+                        f"File {index}: {file_item.get('path', 'untitled.txt')}",
+                        str(file_item.get("content", "")),
                     ]
                 ).rstrip()
             )

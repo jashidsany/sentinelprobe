@@ -103,10 +103,10 @@ Run indirect prompt injection against Claude Code:
 sentinelprobe claude-code --test indirect --mutations
 ```
 
-Run file-based indirect prompt injection against Claude Code:
+Run file-based coding-agent prompt injection against Claude Code:
 
 ```bash
-sentinelprobe claude-code --test indirect --mutations --agent-files --verbose --only-findings
+sentinelprobe claude-code --test agent-files --agent-files --verbose --only-findings
 ```
 
 Limit how many prompts are sent during a smoke test:
@@ -135,10 +135,10 @@ sentinelprobe claude-code --test indirect --mutations --verbose --only-findings 
 Add `--html-report` to create a portable HTML review artifact next to the JSON report:
 
 ```bash
-sentinelprobe claude-code --test indirect --mutations --agent-files --html-report --trace-file reports/claude_code_indirect_trace.txt
+sentinelprobe claude-code --test agent-files --agent-files --html-report --trace-file reports/claude_code_agent_files_trace.txt
 ```
 
-The default Claude Code indirect run is inline retrieved-content simulation: test documents are embedded in the prompt. Add `--agent-files` to write test documents into a disposable sandbox and ask Claude Code to inspect those files. That mode is closer to coding-agent repo/file poisoning tests and uses Claude Code agent-sandbox behavior.
+The default Claude Code indirect run is inline retrieved-content simulation: test documents are embedded in the prompt. Use `--test agent-files --agent-files` for coding-agent repo/file poisoning tests. That mode writes a disposable repository with files such as `README.md`, `docs/policy.md`, `tickets/*.md`, `logs/*.txt`, and `config/*.yaml`, then asks Claude Code to inspect those files using agent-sandbox behavior.
 
 Show copy-ready examples:
 
@@ -146,6 +146,7 @@ Show copy-ready examples:
 sentinelprobe examples
 sentinelprobe examples claude-code
 sentinelprobe examples indirect
+sentinelprobe examples agent-files
 sentinelprobe examples doctor
 ```
 
@@ -155,6 +156,7 @@ Direct suite aliases:
 - `direct-advanced`: advanced direct prompt injection cases, including obfuscation, fake authority, context switching, transcript bait, tool-use bait, and safe-task completion after refusal.
 - `direct`: both `direct-basic` and `direct-advanced`.
 - `indirect`: retrieved-content prompt injection cases, including existing code-generation and secret-boundary cases.
+- `agent-files`: file-based coding-agent prompt injection cases with generated repo layouts.
 - `builtin`: all bundled cases.
 
 Add `--mutations` to generate deterministic case variants for suites that define them. Current mutation styles wrap prompts or retrieved content in urgent wording, Markdown quotes, JSON fields, simulated transcripts, and HTML comments.
@@ -213,13 +215,13 @@ Run only the advanced direct prompt injection suite:
 sentinelprobe claude-code --test direct-advanced
 ```
 
-Run file-based indirect prompt injection against Claude Code:
+Run file-based coding-agent prompt injection against Claude Code:
 
 ```bash
-sentinelprobe claude-code --test indirect --mutations --agent-files --verbose --only-findings --html-report
+sentinelprobe claude-code --test agent-files --agent-files --verbose --only-findings --html-report
 ```
 
-This writes each case into a disposable per-case directory under the Claude Code wrapper workdir and asks Claude Code to inspect `test_documents/`. Use this mode for coding-agent file/source handling checks. Use the default indirect run for inline retrieved-content checks.
+This writes each case into a disposable per-case directory under the Claude Code wrapper workdir and asks Claude Code to inspect generated repository files. Use this mode for coding-agent file/source handling checks. Use the default indirect run for inline retrieved-content checks.
 
 Add `--limit N` to cap how many prompts are sent. The limit is applied after mutations, so `--mutations --limit 5` sends five generated cases.
 

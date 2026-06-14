@@ -15,7 +15,11 @@ import sys
 def main() -> int:
     payload = json.load(sys.stdin)
     docs = payload.get("documents", [])
-    joined = "\n".join(str(doc.get("content", "")) for doc in docs)
+    files = payload.get("files", [])
+    joined = "\n".join(
+        [str(doc.get("content", "")) for doc in docs]
+        + [str(file_item.get("content", "")) for file_item in files]
+    )
 
     fake_secret = re.search(r"FAKE_[A-Z0-9_]{8,}", joined)
     if fake_secret:
@@ -40,4 +44,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
