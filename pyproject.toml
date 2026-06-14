@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sentinelprobe"
+version = "0.1.0"
+description = "Authorized AI prompt-injection and agent-boundary testing CLI"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+  { name = "SentinelProbe contributors" }
+]
+dependencies = [
+  "PyYAML>=6.0.1"
+]
+
+[project.optional-dependencies]
+browser = [
+  "playwright>=1.44.0"
+]
+
+[project.urls]
+Homepage = "https://github.com/jashidsany/sentinelprobe"
+Repository = "https://github.com/jashidsany/sentinelprobe"
+Issues = "https://github.com/jashidsany/sentinelprobe/issues"
+
+[project.scripts]
+sentinelprobe = "prompt_injection_harness.pi_harness:main"
+ai-sec-test = "prompt_injection_harness.pi_harness:main"
+pi-harness = "prompt_injection_harness.pi_harness:main"
+claude-code-wrapper = "prompt_injection_harness.wrappers.claude_code_wrapper:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["prompt_injection_harness*"]
+
+[tool.setuptools.package-data]
+prompt_injection_harness = [
+  "cases/*.yaml",
+  "browser_targets/*.json",
+  "examples/*.py",
+  "wrappers/*.py",
+  "README.md",
+  "requirements.txt"
+]

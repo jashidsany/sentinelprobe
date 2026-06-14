@@ -1,0 +1,20 @@
+{
+  "name": "claude-browser-template",
+  "base_url": "https://claude.ai/new",
+  "profile_dir": "prompt_injection_harness/browser_profiles/claude",
+  "wait_until": "domcontentloaded",
+  "ready_selector": "div[contenteditable='true'], textarea",
+  "prompt_selector": "div[contenteditable='true'], textarea",
+  "submit_selector": "button[aria-label*='Send'], button[type='submit']",
+  "response_selector": "[data-testid*='message'], .font-claude-message, main",
+  "done_selector": "",
+  "send_documents_inline": true,
+  "screenshot_dir": "prompt_injection_harness/reports/screenshots/claude",
+  "notes": [
+    "Use only with an account and workspace where you are authorized to test.",
+    "Run with --headed first and log in manually. The persistent profile stores the browser session locally.",
+    "Claude web selectors can change. Inspect the input box, send button, and response message container if this template times out.",
+    "Keep send_documents_inline true for general Claude web testing because Claude web will not know about local YAML documents unless they are pasted or uploaded."
+  ]
+}
+

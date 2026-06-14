@@ -1,0 +1,20 @@
+{
+  "name": "glean-browser-template",
+  "base_url": "https://YOUR_COMPANY.glean.com",
+  "profile_dir": "prompt_injection_harness/browser_profiles/glean",
+  "wait_until": "domcontentloaded",
+  "ready_selector": "textarea, [contenteditable='true'], input[type='text']",
+  "prompt_selector": "textarea, [contenteditable='true'], input[type='text']",
+  "submit_selector": "button[type='submit'], button:has-text('Send'), button:has-text('Ask'), button:has-text('Search')",
+  "response_selector": "[data-testid='answer'], [data-testid='assistant-message'], .answer, main",
+  "done_selector": "",
+  "send_documents_inline": true,
+  "screenshot_dir": "prompt_injection_harness/reports/screenshots/glean",
+  "notes": [
+    "Use only against an approved Glean tenant, approved account, and approved test data.",
+    "Run with --headed first so the persistent profile can complete SSO login manually.",
+    "Customize selectors after inspecting your tenant UI. Glean DOM attributes can differ by tenant, feature surface, and release.",
+    "For indexed-document tests, set send_documents_inline to false after you have placed the test documents in an approved indexed sandbox source."
+  ]
+}
+
