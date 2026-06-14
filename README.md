@@ -165,6 +165,12 @@ sentinelprobe summarize --report reports/mock_report.json
 sentinelprobe summarize --report reports/mock_report.json --html-report
 ```
 
+Compare two reports:
+
+```bash
+sentinelprobe compare --before reports/baseline.json --after reports/latest.json --html-report
+```
+
 ## Providers
 
 - `mock`: local safe baseline.
@@ -207,6 +213,16 @@ sentinelprobe claude-code --test indirect --mutations --agent-files --verbose --
 This writes each case into a disposable per-case directory under the Claude Code wrapper workdir and asks Claude Code to inspect `test_documents/`. Use this mode for coding-agent file/source handling checks. Use the default indirect run for inline retrieved-content checks.
 
 Add `--limit N` to cap how many prompts are sent. The limit is applied after mutations, so `--mutations --limit 5` sends five generated cases.
+
+## Report Comparison
+
+Use `compare` to check regression between two JSON reports:
+
+```bash
+sentinelprobe compare --before reports/claude_code_indirect_inline_v060.json --after reports/claude_code_indirect_agent_files_v060.json --html-report
+```
+
+The comparison shows new cases, removed cases, fixed findings, regressions, changed finding details, and unchanged cases. Use this after model changes, guardrail updates, or target configuration changes.
 
 ## Scoring Notes
 

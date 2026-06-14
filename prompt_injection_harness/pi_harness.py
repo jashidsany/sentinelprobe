@@ -141,6 +141,12 @@ def create_parser() -> argparse.ArgumentParser:
     summarize.add_argument("--plain", action="store_true", help="Use compact plain-text output.")
     summarize.add_argument("--html-report", nargs="?", const="", help="Write an HTML report from this JSON report. Defaults to the JSON report path with .html when used without a value.")
 
+    compare = subparsers.add_parser("compare", help="Compare two JSON reports.")
+    compare.add_argument("--before", required=True, help="Baseline JSON report.")
+    compare.add_argument("--after", required=True, help="New JSON report.")
+    compare.add_argument("--plain", action="store_true", help="Use compact plain-text output.")
+    compare.add_argument("--html-report", nargs="?", const="", help="Write an HTML comparison report. Defaults to reports/compare_<before>_to_<after>.html when used without a value.")
+
     init_browser = subparsers.add_parser("init-browser-config", help="Write a browser provider config template.")
     init_browser.add_argument("--output", default="prompt_injection_harness/browser_targets/generic_browser.json")
     init_browser.add_argument("--base-url", default="https://app.example.test")
@@ -152,7 +158,7 @@ def create_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("banner", help="Print the SentinelProbe banner.")
     subparsers.add_parser("list-suites", help="List bundled case suite aliases.")
     examples = subparsers.add_parser("examples", help="Print copy-ready example commands.")
-    examples.add_argument("target", nargs="?", choices=["all", "claude-code", "mock", "indirect", "http", "browser"], default="all")
+    examples.add_argument("target", nargs="?", choices=["all", "claude-code", "mock", "indirect", "compare", "http", "browser"], default="all")
     subparsers.add_parser("wizard", help="Interactive setup for common test runs.")
 
     return parser
@@ -476,6 +482,12 @@ def init_project(output: Path, force: bool) -> None:
                     "",
                     "```bash",
                     "sentinelprobe claude-code --test indirect --mutations --agent-files --verbose --only-findings --html-report",
+                    "```",
+                    "",
+                    "Compare reports:",
+                    "",
+                    "```bash",
+                    "sentinelprobe compare --before reports/baseline.json --after reports/latest.json --html-report",
                     "```",
                     "",
                 ]
@@ -999,6 +1011,208 @@ def write_html_report(path: Path, report: dict[str, Any], source_report_path: Pa
     path.write_text(html_text, encoding="utf-8")
 
 
+def result_map(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    mapped = {}
+    for result in report.get("results", []) or []:
+        if isinstance(result, dict) and result.get("id") is not None:
+            mapped[str(result.get("id"))] = result
+    return mapped
+
+
+def status_rank(status: Any) -> int:
+    return {"pass": 0, "review": 1, "fail": 2}.get(str(status or "review").lower(), 1)
+
+
+def finding_signature(result: dict[str, Any] | None) -> list[tuple[str, str, str]]:
+    if not result:
+        return []
+    signatures = []
+    for finding in result.get("findings", []) or []:
+        if isinstance(finding, dict):
+            signatures.append(
+                (
+                    str(finding.get("severity", "")),
+                    str(finding.get("check", "")),
+                    str(finding.get("detail", "")),
+                )
+            )
+    return sorted(signatures)
+
+
+def compare_reports(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
+    before_results = result_map(before)
+    after_results = result_map(after)
+    case_ids = sorted(set(before_results) | set(after_results))
+    changes = []
+    summary = {
+        "total": len(case_ids),
+        "new": 0,
+        "removed": 0,
+        "fixed": 0,
+        "regressed": 0,
+        "changed": 0,
+        "unchanged": 0,
+    }
+    for case_id in case_ids:
+        before_item = before_results.get(case_id)
+        after_item = after_results.get(case_id)
+        if before_item is None:
+            kind = "new"
+        elif after_item is None:
+            kind = "removed"
+        else:
+            before_status = str(before_item.get("status", "review"))
+            after_status = str(after_item.get("status", "review"))
+            if status_rank(after_status) > status_rank(before_status):
+                kind = "regressed"
+            elif status_rank(after_status) < status_rank(before_status):
+                kind = "fixed"
+            elif finding_signature(before_item) != finding_signature(after_item):
+                kind = "changed"
+            else:
+                kind = "unchanged"
+        summary[kind] += 1
+        changes.append(
+            {
+                "id": case_id,
+                "name": (after_item or before_item or {}).get("name"),
+                "category": (after_item or before_item or {}).get("category"),
+                "kind": kind,
+                "before_status": before_item.get("status") if before_item else None,
+                "after_status": after_item.get("status") if after_item else None,
+                "before_findings": before_item.get("findings", []) if before_item else [],
+                "after_findings": after_item.get("findings", []) if after_item else [],
+            }
+        )
+    return {
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "before_summary": before.get("summary", {}),
+        "after_summary": after.get("summary", {}),
+        "summary": summary,
+        "changes": changes,
+    }
+
+
+def default_compare_html_path(before_path: Path, after_path: Path) -> Path:
+    before_name = before_path.with_suffix("").name
+    after_name = after_path.with_suffix("").name
+    return Path("reports") / f"compare_{before_name}_to_{after_name}.html"
+
+
+def resolve_compare_html_path(value: str | None, before_path: Path, after_path: Path) -> Path | None:
+    if value is None:
+        return None
+    if value == "":
+        return default_compare_html_path(before_path, after_path)
+    return Path(value)
+
+
+def finding_list_html(findings: list[Any]) -> str:
+    items = []
+    for finding in findings:
+        if isinstance(finding, dict):
+            items.append(f"<li>{html_escape(finding.get('severity'))} {html_escape(finding.get('check'))}: {html_escape(finding.get('detail'))}</li>")
+    if not items:
+        return "<span class=\"muted\">none</span>"
+    return f"<ul>{''.join(items)}</ul>"
+
+
+def write_compare_html(path: Path, comparison: dict[str, Any], before_path: Path, after_path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    summary = comparison.get("summary", {}) or {}
+    rows = []
+    detail_cards = []
+    for change in comparison.get("changes", []) or []:
+        if not isinstance(change, dict):
+            continue
+        kind = str(change.get("kind", "changed"))
+        before_status = change.get("before_status") or "missing"
+        after_status = change.get("after_status") or "missing"
+        rows.append(
+            "<tr>"
+            f"<td>{html_escape(kind)}</td>"
+            f"<td>{html_escape(change.get('id'))}</td>"
+            f"<td>{html_escape(change.get('name'))}</td>"
+            f"<td>{html_escape(before_status)}</td>"
+            f"<td>{html_escape(after_status)}</td>"
+            "</tr>"
+        )
+        if kind != "unchanged":
+            detail_cards.append(
+                "\n".join(
+                    [
+                        f'<section class="case {status_class(after_status)}">',
+                        f"<h3>{html_escape(kind.upper())}: {html_escape(change.get('id'))} {html_escape(change.get('name'))}</h3>",
+                        f'<div class="meta">Before: {html_escape(before_status)} | After: {html_escape(after_status)}</div>',
+                        "<div class=\"columns\">",
+                        f"<div><h4>Before findings</h4>{finding_list_html(change.get('before_findings', []))}</div>",
+                        f"<div><h4>After findings</h4>{finding_list_html(change.get('after_findings', []))}</div>",
+                        "</div>",
+                        "</section>",
+                    ]
+                )
+            )
+    if not detail_cards:
+        detail_cards.append('<section class="case pass"><strong>No changed cases.</strong></section>')
+
+    html_text = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SentinelProbe Compare</title>
+  <style>
+    :root {{ color-scheme: light; --bg: #f6f7f9; --panel: #fff; --text: #20242a; --muted: #5d6673; --line: #d8dde6; }}
+    body {{ margin: 0; font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: var(--text); }}
+    main {{ max-width: 1180px; margin: 0 auto; padding: 28px; }}
+    h1, h2, h3 {{ margin: 0 0 12px; }}
+    .top, .case, table, .card {{ background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }}
+    .top {{ padding: 20px; margin-bottom: 18px; }}
+    .meta, .muted {{ color: var(--muted); font-size: 13px; }}
+    .cards {{ display: grid; grid-template-columns: repeat(6, minmax(110px, 1fr)); gap: 12px; margin: 18px 0; }}
+    .card {{ padding: 14px; }}
+    .card strong {{ display: block; font-size: 24px; margin-top: 4px; }}
+    .case {{ padding: 14px; margin: 12px 0; border-left-width: 6px; }}
+    .pass {{ border-left-color: #238636; }}
+    .review {{ border-left-color: #b7791f; }}
+    .fail {{ border-left-color: #c62828; }}
+    .columns {{ display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }}
+    table {{ width: 100%; border-collapse: collapse; overflow: hidden; }}
+    th, td {{ border-bottom: 1px solid var(--line); padding: 9px; text-align: left; font-size: 14px; vertical-align: top; }}
+    th {{ background: #eef1f5; }}
+    a {{ color: #0b5cad; }}
+    @media (max-width: 900px) {{ main {{ padding: 14px; }} .cards {{ grid-template-columns: repeat(2, minmax(110px, 1fr)); }} .columns {{ grid-template-columns: 1fr; }} }}
+  </style>
+</head>
+<body>
+<main>
+  <section class="top">
+    <h1>SentinelProbe Compare</h1>
+    <div class="meta">Generated: {html_escape(comparison.get('generated_at'))}</div>
+    <div class="meta">Before: {html_link(before_path, before_path.name, path)} | After: {html_link(after_path, after_path.name, path)}</div>
+  </section>
+  <section class="cards">
+    <div class="card">Total<strong>{html_escape(summary.get('total', 0))}</strong></div>
+    <div class="card">New<strong>{html_escape(summary.get('new', 0))}</strong></div>
+    <div class="card">Removed<strong>{html_escape(summary.get('removed', 0))}</strong></div>
+    <div class="card">Fixed<strong>{html_escape(summary.get('fixed', 0))}</strong></div>
+    <div class="card">Regressed<strong>{html_escape(summary.get('regressed', 0))}</strong></div>
+    <div class="card">Changed<strong>{html_escape(summary.get('changed', 0))}</strong></div>
+  </section>
+  <h2>Changed Cases</h2>
+  {''.join(detail_cards)}
+  <h2>All Cases</h2>
+  <table>
+    <thead><tr><th>Change</th><th>Case</th><th>Name</th><th>Before</th><th>After</th></tr></thead>
+    <tbody>{''.join(rows)}</tbody>
+  </table>
+</main>
+</body>
+</html>
+"""
+    path.write_text(html_text, encoding="utf-8")
+
+
 def load_json(path: Path) -> dict[str, Any]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -1105,6 +1319,10 @@ def print_examples(target: str) -> None:
             "Claude Code indirect smoke test with five prompts:",
             "sentinelprobe claude-code --test indirect --mutations --limit 5 --verbose --only-findings",
         ],
+        "compare": [
+            "Compare two JSON reports:",
+            "sentinelprobe compare --before reports/baseline.json --after reports/latest.json --html-report",
+        ],
         "http": [
             "Approved HTTP endpoint:",
             "sentinelprobe run --cases direct --provider http --endpoint http://127.0.0.1:8080/ask --header 'Authorization: Bearer TEST_TOKEN'",
@@ -1147,6 +1365,62 @@ def summarize_report(path: Path, plain: bool = False, html_report: str | None = 
         print(f"{severity_label(status, color)} {result.get('id')}: {status_text(status, color)}")
         for finding in result.get("findings", []):
             print(f"  - {finding_label(finding, color)} {finding.get('check')}: {finding.get('detail')}")
+    return 0
+
+
+def compare_kind_label(kind: str, color: bool | None = None) -> str:
+    tag = {
+        "new": "INFO",
+        "removed": "WARN",
+        "fixed": "OK",
+        "regressed": "FAIL",
+        "changed": "REVIEW",
+        "unchanged": "PASS",
+    }.get(kind, "REVIEW")
+    return tagged_label(tag, color)
+
+
+def compare_reports_command(before_path: Path, after_path: Path, plain: bool = False, html_report: str | None = None) -> int:
+    before = load_json(before_path)
+    after = load_json(after_path)
+    comparison = compare_reports(before, after)
+    color = use_color()
+    html_report_path = resolve_compare_html_path(html_report, before_path, after_path)
+    if html_report_path:
+        write_compare_html(html_report_path, comparison, before_path, after_path)
+
+    summary = comparison["summary"]
+    print(f"{tagged_label('INFO', color)} Before: {before_path}")
+    print(f"{tagged_label('INFO', color)} After: {after_path}")
+    if html_report_path:
+        print(f"{tagged_label('INFO', color)} HTML report: {html_report_path}")
+    if plain:
+        print(
+            "Compare: "
+            f"new={summary.get('new', 0)} "
+            f"removed={summary.get('removed', 0)} "
+            f"fixed={summary.get('fixed', 0)} "
+            f"regressed={summary.get('regressed', 0)} "
+            f"changed={summary.get('changed', 0)} "
+            f"unchanged={summary.get('unchanged', 0)} "
+            f"total={summary.get('total', 0)}"
+        )
+    else:
+        print("Compare")
+        for key in ("new", "removed", "fixed", "regressed", "changed", "unchanged"):
+            print(f"{key:<10} {summary.get(key, 0)}")
+        print(f"total      {summary.get('total', 0)}")
+
+    for change in comparison.get("changes", []):
+        if not isinstance(change, dict) or change.get("kind") == "unchanged":
+            continue
+        kind = str(change.get("kind", "changed"))
+        before_status = change.get("before_status") or "missing"
+        after_status = change.get("after_status") or "missing"
+        print(
+            f"{compare_kind_label(kind, color)} {change.get('id')}: "
+            f"{kind} ({before_status} -> {after_status})"
+        )
     return 0
 
 
@@ -1567,6 +1841,9 @@ def main() -> int:
 
     if args.command_name == "summarize":
         return summarize_report(Path(args.report), args.plain, args.html_report)
+
+    if args.command_name == "compare":
+        return compare_reports_command(Path(args.before), Path(args.after), args.plain, args.html_report)
 
     cases = load_cases(resolve_cases_path(args.cases), getattr(args, "mutations", False))
     cases, original_case_count = apply_case_limit(cases, getattr(args, "limit", None))
