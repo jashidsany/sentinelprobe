@@ -1117,6 +1117,7 @@ def run_cases(args: argparse.Namespace, cases: list[dict[str, Any]]) -> int:
                 if getattr(args, "show_findings", False):
                     for finding in findings:
                         print(f"  - {finding_label(finding, color)} {finding.get('check')}: {finding.get('detail')}")
+                print()
     finally:
         if trace_handle:
             trace_handle.close()
