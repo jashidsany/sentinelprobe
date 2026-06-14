@@ -41,6 +41,13 @@ sentinelprobe doctor --target claude-code
 sentinelprobe doctor --target browser
 ```
 
+Run source-tree regression checks during development:
+
+```bash
+python3 scripts/check.py
+python3 scripts/check.py --build --wheel-smoke
+```
+
 The SentinelProbe banner appears at startup for every command, including no-argument runs and help output. You can also print only the banner:
 
 ```bash
