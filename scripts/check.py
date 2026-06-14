@@ -20,6 +20,7 @@ PYTHON = sys.executable
 CLI = ROOT / "prompt_injection_harness" / "pi_harness.py"
 CASES = ROOT / "prompt_injection_harness" / "cases.py"
 HTML_REPORTS = ROOT / "prompt_injection_harness" / "html_reports.py"
+PROVIDERS = ROOT / "prompt_injection_harness" / "providers.py"
 REPORTS = ROOT / "prompt_injection_harness" / "reports.py"
 SCORING = ROOT / "prompt_injection_harness" / "scoring.py"
 WRAPPER = ROOT / "prompt_injection_harness" / "wrappers" / "claude_code_wrapper.py"
@@ -58,6 +59,7 @@ def py_compile() -> None:
             str(CLI),
             str(CASES),
             str(HTML_REPORTS),
+            str(PROVIDERS),
             str(REPORTS),
             str(SCORING),
             str(WRAPPER),
