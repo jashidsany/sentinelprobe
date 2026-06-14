@@ -73,7 +73,7 @@ sentinelprobe wizard
 
 The wizard lets users choose the case set, target provider, common presets such as Claude Code, timeout, report path, and verbose output from numbered prompts.
 
-Print the banner:
+The SentinelProbe banner appears at startup for every command, including no-argument runs and help output. You can also print only the banner:
 
 ```bash
 sentinelprobe banner

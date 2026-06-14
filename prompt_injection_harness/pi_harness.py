@@ -32,9 +32,9 @@ class TargetResult:
     elapsed_ms: int = 0
 
 
-def parse_args() -> argparse.Namespace:
+def create_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description=banner_text(color=use_color()) + "\n\nRun authorized AI prompt-injection and agent-boundary tests.",
+        description="Run authorized AI prompt-injection and agent-boundary tests.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--color", choices=["auto", "always", "never"], default="auto", help="Control ANSI color output.")
@@ -75,7 +75,11 @@ def parse_args() -> argparse.Namespace:
     subparsers.add_parser("banner", help="Print the SentinelProbe banner.")
     subparsers.add_parser("wizard", help="Interactive setup for common test runs.")
 
-    return parser.parse_args()
+    return parser
+
+
+def parse_args() -> argparse.Namespace:
+    return create_parser().parse_args()
 
 
 def color_mode_from_argv() -> str:
@@ -651,8 +655,8 @@ def choose(prompt: str, options: list[tuple[str, str]], default_index: int = 0) 
 
 
 def run_wizard(color_mode: str = "auto") -> int:
-    print_banner(color_mode)
-    print("\nSentinelProbe Wizard")
+    del color_mode
+    print("SentinelProbe Wizard")
     print("Use only approved systems, accounts, and test data.\n")
 
     cases_path = ask("Cases path", "builtin")
@@ -758,10 +762,18 @@ def run_cases(args: argparse.Namespace, cases: list[dict[str, Any]]) -> int:
 
 
 def main() -> int:
-    args = parse_args()
+    color_mode = color_mode_from_argv()
+    print_banner(color_mode)
+
+    parser = create_parser()
+    if len(sys.argv) == 1:
+        print()
+        parser.print_help()
+        return 0
+
+    args = parser.parse_args()
 
     if args.command_name == "banner":
-        print_banner(args.color)
         return 0
 
     if args.command_name == "wizard":

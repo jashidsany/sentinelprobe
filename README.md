@@ -33,7 +33,7 @@ Run the interactive wizard:
 sentinelprobe wizard
 ```
 
-Print the CLI banner:
+The SentinelProbe banner appears at startup for every command, including no-argument runs and help output. You can also print only the banner:
 
 ```bash
 sentinelprobe banner
