@@ -46,6 +46,14 @@ sentinelprobe --color always banner
 sentinelprobe --color always --help
 ```
 
+Findings are color-coded in terminal output:
+
+- `[FAIL]` red: deterministic unsafe behavior, such as fake secret leakage.
+- `[REVIEW]` yellow: suspicious behavior or incomplete safe handling.
+- `[PASS]` green: no deterministic issue found.
+
+Use `--color never` for plain logs.
+
 Run bundled cases against the local mock provider:
 
 ```bash

@@ -167,6 +167,33 @@ def colorize(text: str, code: str) -> str:
     return f"\033[{code}m{text}\033[0m"
 
 
+def severity_color(severity: str) -> str:
+    return {
+        "pass": "32;1",
+        "review": "33;1",
+        "fail": "31;1",
+    }.get(severity, "0")
+
+
+def severity_label(severity: str, color: bool | None = None) -> str:
+    normalized = str(severity).lower()
+    label = f"[{normalized.upper()}]"
+    if color is None:
+        color = use_color()
+    if color and normalized in {"pass", "review", "fail"}:
+        return colorize(label, severity_color(normalized))
+    return label
+
+
+def status_text(status: str, color: bool | None = None) -> str:
+    normalized = str(status).lower()
+    if color is None:
+        color = use_color()
+    if color and normalized in {"pass", "review", "fail"}:
+        return colorize(normalized, severity_color(normalized))
+    return normalized
+
+
 def banner_text(color: bool = False) -> str:
     art = r"""
   ____             _   _            _ ____            _
@@ -753,17 +780,21 @@ def validate_cases(cases: list[dict[str, Any]]) -> list[str]:
     return errors
 
 
-def status_bar(label: str, value: int, total: int, width: int = 28) -> str:
+def status_bar(label: str, value: int, total: int, width: int = 28, color: bool | None = None) -> str:
     filled = int((value / total) * width) if total else 0
-    return f"{label:<7} [{'#' * filled}{'.' * (width - filled)}] {value}"
+    rendered_label = status_text(label, color)
+    padded_label = f"{rendered_label:<7}" if not (color or False) else rendered_label
+    if color:
+        padded_label = f"{rendered_label}{' ' * max(1, 7 - len(label))}"
+    return f"{padded_label} [{'#' * filled}{'.' * (width - filled)}] {value}"
 
 
-def print_summary_graph(summary: dict[str, Any]) -> None:
+def print_summary_graph(summary: dict[str, Any], color: bool | None = None) -> None:
     total = int(summary.get("total", 0) or 0)
     print("Results")
-    print(status_bar("pass", int(summary.get("pass", 0) or 0), total))
-    print(status_bar("review", int(summary.get("review", 0) or 0), total))
-    print(status_bar("fail", int(summary.get("fail", 0) or 0), total))
+    print(status_bar("pass", int(summary.get("pass", 0) or 0), total, color=color))
+    print(status_bar("review", int(summary.get("review", 0) or 0), total, color=color))
+    print(status_bar("fail", int(summary.get("fail", 0) or 0), total, color=color))
     print(f"total   {total}")
 
 
@@ -830,6 +861,7 @@ def print_examples(target: str) -> None:
 def summarize_report(path: Path, plain: bool = False) -> int:
     report = load_json(path)
     summary = report.get("summary", {})
+    color = use_color()
     print(f"Report: {path}")
     if plain:
         print(
@@ -840,13 +872,15 @@ def summarize_report(path: Path, plain: bool = False) -> int:
             f"total={summary.get('total', 0)}"
         )
     else:
-        print_summary_graph(summary)
+        print_summary_graph(summary, color=color)
     for result in report.get("results", []):
         if result.get("status") == "pass":
             continue
-        print(f"{result.get('id')}: {result.get('status')}")
+        status = str(result.get("status", "review"))
+        print(f"{severity_label(status, color)} {result.get('id')}: {status_text(status, color)}")
         for finding in result.get("findings", []):
-            print(f"  - {finding.get('check')}: {finding.get('detail')}")
+            severity = str(finding.get("severity", status))
+            print(f"  - {severity_label(severity, color)} {finding.get('check')}: {finding.get('detail')}")
     return 0
 
 
@@ -967,6 +1001,7 @@ def run_wizard(color_mode: str = "auto") -> int:
 def run_cases(args: argparse.Namespace, cases: list[dict[str, Any]]) -> int:
     headers = build_headers(args.header)
     browser_config = load_json(Path(args.browser_config)) if args.provider == "browser" and args.browser_config else {}
+    color = use_color()
 
     if args.provider == "http" and not args.endpoint:
         raise SystemExit("--endpoint is required for --provider http")
@@ -992,7 +1027,11 @@ def run_cases(args: argparse.Namespace, cases: list[dict[str, Any]]) -> int:
         scored = score_case(case, target_result)
         results.append(scored)
         if args.verbose:
-            print(f"{scored['id']}: {scored['status']} ({scored['elapsed_ms']} ms)")
+            status = str(scored["status"])
+            print(f"{severity_label(status, color)} {scored['id']}: {status_text(status, color)} ({scored['elapsed_ms']} ms)")
+            for finding in scored.get("findings", []):
+                severity = str(finding.get("severity", status))
+                print(f"  - {severity_label(severity, color)} {finding.get('check')}: {finding.get('detail')}")
 
     cases_name = getattr(args, "cases_name", None) or getattr(args, "cases", "cases")
     report_path = Path(args.report) if args.report else default_report_path(args.provider, str(cases_name))
@@ -1002,7 +1041,7 @@ def run_cases(args: argparse.Namespace, cases: list[dict[str, Any]]) -> int:
     review = sum(1 for item in results if item["status"] == "review")
     passed = sum(1 for item in results if item["status"] == "pass")
     print(f"Report: {report_path}")
-    print_summary_graph({"pass": passed, "review": review, "fail": failed, "total": len(results)})
+    print_summary_graph({"pass": passed, "review": review, "fail": failed, "total": len(results)}, color=color)
 
     if failed or (review and args.fail_on_review):
         return 1
