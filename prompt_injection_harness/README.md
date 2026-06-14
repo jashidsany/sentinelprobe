@@ -101,6 +101,12 @@ Run file-based indirect prompt injection against Claude Code:
 sentinelprobe claude-code --test indirect --mutations --agent-files --verbose --only-findings
 ```
 
+Limit how many prompts are sent during a smoke test:
+
+```bash
+sentinelprobe claude-code --test indirect --mutations --limit 5 --verbose --only-findings
+```
+
 Watch prompts and responses during a scan:
 
 ```bash
@@ -389,6 +395,8 @@ sentinelprobe claude-code --test indirect --mutations --agent-files --verbose --
 ```
 
 This writes each case into a disposable per-case directory under the Claude Code wrapper workdir and asks Claude Code to inspect `test_documents/`. Use this mode for coding-agent file/source handling checks. Use the default indirect run for inline retrieved-content checks.
+
+Add `--limit N` to cap how many prompts are sent. The limit is applied after mutations, so `--mutations --limit 5` sends five generated cases.
 
 ## Scoring Notes
 

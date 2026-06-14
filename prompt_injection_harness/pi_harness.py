@@ -92,6 +92,7 @@ def create_parser() -> argparse.ArgumentParser:
     run.add_argument("--timeout", type=int, default=45)
     run.add_argument("--report", help="Report path. Defaults to reports/<provider>_<cases>_<timestamp>.json.")
     run.add_argument("--mutations", action="store_true", help="Add deterministic variants for cases that define mutations.")
+    run.add_argument("--limit", type=positive_int, help="Send only the first N loaded cases. Applied after mutations.")
     run.add_argument("--fail-on-review", action="store_true", help="Return non-zero when any case needs review.")
     run.add_argument("--verbose", action="store_true", help="Show each case status plus prompt and response text.")
     run.add_argument("--show-findings", action="store_true", help="Print full finding details for each non-pass case during the run.")
@@ -116,6 +117,7 @@ def create_parser() -> argparse.ArgumentParser:
     claude_code.add_argument("--timeout", type=int, default=180)
     claude_code.add_argument("--report", help="Report path. Defaults to reports/claude-code_<test>_<timestamp>.json.")
     claude_code.add_argument("--mutations", action="store_true", help="Add deterministic variants for cases that define mutations.")
+    claude_code.add_argument("--limit", type=positive_int, help="Send only the first N loaded cases. Applied after mutations.")
     claude_code.add_argument("--fail-on-review", action="store_true", help="Return non-zero when any case needs review.")
     claude_code.add_argument("--verbose", action="store_true", help="Show each case status plus prompt and response text.")
     claude_code.add_argument("--quiet", action="store_true", help="Hide per-case status lines.")
@@ -158,6 +160,16 @@ def create_parser() -> argparse.ArgumentParser:
 
 def parse_args() -> argparse.Namespace:
     return create_parser().parse_args()
+
+
+def positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a positive integer") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
 
 
 def color_mode_from_argv() -> str:
@@ -342,6 +354,12 @@ def load_cases(paths: list[Path], include_mutations: bool = False) -> list[dict[
                 if include_mutations:
                     cases.extend(expand_mutations(case))
     return cases
+
+
+def apply_case_limit(cases: list[dict[str, Any]], limit: int | None) -> tuple[list[dict[str, Any]], int | None]:
+    if limit is None:
+        return cases, None
+    return cases[:limit], len(cases)
 
 
 def expand_mutations(case: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1066,6 +1084,9 @@ def print_examples(target: str) -> None:
             "",
             "Claude Code file-based indirect prompt injection:",
             "sentinelprobe claude-code --test indirect --mutations --agent-files --verbose --only-findings --html-report",
+            "",
+            "Claude Code indirect smoke test with five prompts:",
+            "sentinelprobe claude-code --test indirect --mutations --limit 5 --verbose --only-findings",
         ],
         "mock": [
             "Local mock baseline:",
@@ -1080,6 +1101,9 @@ def print_examples(target: str) -> None:
             "",
             "Claude Code file-based indirect prompt injection:",
             "sentinelprobe claude-code --test indirect --mutations --agent-files --verbose --only-findings --html-report",
+            "",
+            "Claude Code indirect smoke test with five prompts:",
+            "sentinelprobe claude-code --test indirect --mutations --limit 5 --verbose --only-findings",
         ],
         "http": [
             "Approved HTTP endpoint:",
@@ -1233,6 +1257,7 @@ def run_wizard(color_mode: str = "auto") -> int:
         timeout=timeout,
         report=report,
         fail_on_review=False,
+        limit=None,
         verbose=verbose,
         compact_status=False,
         show_findings=False,
@@ -1326,6 +1351,10 @@ def run_cases(args: argparse.Namespace, cases: list[dict[str, Any]]) -> int:
         metadata["trace_file"] = str(args.trace_file)
     if getattr(args, "cases_name", None):
         metadata["cases_name"] = str(args.cases_name)
+    if getattr(args, "limit", None):
+        metadata["limit"] = int(args.limit)
+    if getattr(args, "original_case_count", None):
+        metadata["original_case_count"] = int(args.original_case_count)
     write_report(report_path, args.provider, results, metadata)
     html_report_path = resolve_html_report_path(getattr(args, "html_report", None), report_path)
     if html_report_path:
@@ -1338,6 +1367,8 @@ def run_cases(args: argparse.Namespace, cases: list[dict[str, Any]]) -> int:
     print(f"{tagged_label('INFO', color)} Report: {report_path}")
     if html_report_path:
         print(f"{tagged_label('INFO', color)} HTML report: {html_report_path}")
+    if getattr(args, "limit", None) and getattr(args, "original_case_count", None):
+        print(f"{tagged_label('INFO', color)} Limit: sent {len(results)} of {args.original_case_count} loaded cases")
     print_summary_graph({"pass": passed, "review": review, "fail": failed, "total": len(results)}, color=color)
 
     if failed or (review and args.fail_on_review):
@@ -1469,6 +1500,7 @@ def claude_code_command(args: argparse.Namespace) -> str:
 def run_claude_code(args: argparse.Namespace) -> int:
     test_name = getattr(args, "test", "direct")
     cases = load_cases(resolve_cases_path(test_name), args.mutations)
+    cases, original_case_count = apply_case_limit(cases, args.limit)
     run_args = argparse.Namespace(
         provider="command",
         endpoint=None,
@@ -1480,6 +1512,8 @@ def run_claude_code(args: argparse.Namespace) -> int:
         timeout=args.timeout,
         report=args.report,
         fail_on_review=args.fail_on_review,
+        limit=args.limit,
+        original_case_count=original_case_count,
         verbose=args.verbose,
         compact_status=not args.quiet,
         show_findings=args.show_findings,
@@ -1488,7 +1522,7 @@ def run_claude_code(args: argparse.Namespace) -> int:
         trace_limit=args.trace_limit,
         trace_file=args.trace_file,
         html_report=args.html_report,
-        cases_name=f"claude-code_{test_name}{'_mutations' if args.mutations else ''}{'_agent-files' if args.agent_files else ''}",
+        cases_name=f"claude-code_{test_name}{'_mutations' if args.mutations else ''}{'_agent-files' if args.agent_files else ''}{'_limit' + str(args.limit) if args.limit else ''}",
     )
     return run_cases(run_args, cases)
 
@@ -1535,7 +1569,9 @@ def main() -> int:
         return summarize_report(Path(args.report), args.plain, args.html_report)
 
     cases = load_cases(resolve_cases_path(args.cases), getattr(args, "mutations", False))
-    args.cases_name = f"{args.cases}{'_mutations' if getattr(args, 'mutations', False) else ''}"
+    cases, original_case_count = apply_case_limit(cases, getattr(args, "limit", None))
+    args.original_case_count = original_case_count
+    args.cases_name = f"{args.cases}{'_mutations' if getattr(args, 'mutations', False) else ''}{'_limit' + str(args.limit) if getattr(args, 'limit', None) else ''}"
 
     if args.command_name == "list-cases":
         print_case_catalog(cases)
