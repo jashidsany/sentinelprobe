@@ -104,6 +104,12 @@ sentinelprobe run --cases direct-basic --provider mock --trace
 
 Use `--trace-limit 0` to print full traced inputs and responses. The default trace limit is 4000 characters per input or response.
 
+For readable terminal output plus a full prompt/response log, write trace output to a file:
+
+```bash
+sentinelprobe claude-code --suite indirect --mutations --only-findings --trace-file reports/claude_code_indirect_trace.txt
+```
+
 Normal verbose output is compact: each case gets one status line with tag counts. Add `--only-findings` to hide passing cases, or `--show-findings` to print full finding details during the run. Full prompt and response text stays behind `--trace`.
 
 Show copy-ready examples:

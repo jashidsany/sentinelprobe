@@ -95,6 +95,7 @@ def create_parser() -> argparse.ArgumentParser:
     run.add_argument("--only-findings", action="store_true", help="With --verbose, hide passing case lines and show only review/fail cases.")
     run.add_argument("--trace", action="store_true", help="Print each case input and target response while the run is active.")
     run.add_argument("--trace-limit", type=int, default=4000, help="Maximum characters per traced input or response. Use 0 for no limit.")
+    run.add_argument("--trace-file", help="Write full case inputs and target responses to this text file.")
 
     claude_code = subparsers.add_parser("claude-code", help="Run Claude Code with response-only defaults.")
     claude_code.add_argument("--suite", default="direct", help="Suite alias or case path. Default: direct.")
@@ -111,6 +112,7 @@ def create_parser() -> argparse.ArgumentParser:
     claude_code.add_argument("--only-findings", action="store_true", help="Hide passing case lines and show only review/fail cases.")
     claude_code.add_argument("--trace", action="store_true", help="Print each case input and Claude Code response while the run is active.")
     claude_code.add_argument("--trace-limit", type=int, default=4000, help="Maximum characters per traced input or response. Use 0 for no limit.")
+    claude_code.add_argument("--trace-file", help="Write full case inputs and Claude Code responses to this text file.")
 
     list_cases = subparsers.add_parser("list-cases", help="List loaded cases.")
     list_cases.add_argument("--cases", required=True, help="YAML case file, case directory, or suite alias such as 'builtin' or 'direct'.")
@@ -1043,6 +1045,7 @@ def run_wizard(color_mode: str = "auto") -> int:
         only_findings=False,
         trace=False,
         trace_limit=4000,
+        trace_file=None,
     )
     return run_cases(args, cases)
 
@@ -1051,6 +1054,8 @@ def run_cases(args: argparse.Namespace, cases: list[dict[str, Any]]) -> int:
     headers = build_headers(args.header)
     browser_config = load_json(Path(args.browser_config)) if args.provider == "browser" and args.browser_config else {}
     color = use_color()
+    trace_file = Path(args.trace_file) if getattr(args, "trace_file", None) else None
+    trace_handle = None
 
     if args.provider == "http" and not args.endpoint:
         raise SystemExit("--endpoint is required for --provider http")
@@ -1059,31 +1064,45 @@ def run_cases(args: argparse.Namespace, cases: list[dict[str, Any]]) -> int:
     if args.provider == "browser" and not args.browser_config:
         raise SystemExit("--browser-config is required for --provider browser")
 
+    if trace_file:
+        trace_file.parent.mkdir(parents=True, exist_ok=True)
+        trace_handle = trace_file.open("w", encoding="utf-8")
+        print(f"{tagged_label('INFO', color)} Writing prompt and response trace: {trace_file}")
+
     results = []
-    for case in cases:
-        if getattr(args, "trace", False):
-            trace_case_start(case, args.provider, browser_config, int(getattr(args, "trace_limit", 4000) or 0))
-        if args.provider == "mock":
-            target_result = call_mock(case, args.timeout)
-        elif args.provider == "http":
-            target_result = call_http(case, args.endpoint, headers, args.timeout)
-        elif args.provider == "browser":
-            target_result = call_browser(case, browser_config, args.headed, args.slow_mo, args.timeout)
-        else:
-            target_result = call_command(case, args.command, args.timeout)
-        if getattr(args, "trace", False):
-            trace_case_response(case, target_result, int(getattr(args, "trace_limit", 4000) or 0))
-        scored = score_case(case, target_result)
-        results.append(scored)
-        if args.verbose and not (getattr(args, "only_findings", False) and scored["status"] == "pass"):
-            status = str(scored["status"])
-            findings = scored.get("findings", [])
-            summary = compact_findings_summary(findings, color)
-            suffix = f"  {summary}" if summary else ""
-            print(f"{severity_label(status, color)} {scored['id']}: {status_text(status, color)} ({scored['elapsed_ms']} ms){suffix}")
-            if getattr(args, "show_findings", False):
-                for finding in findings:
-                    print(f"  - {finding_label(finding, color)} {finding.get('check')}: {finding.get('detail')}")
+    try:
+        for case in cases:
+            if getattr(args, "trace", False):
+                trace_case_start(case, args.provider, browser_config, int(getattr(args, "trace_limit", 4000) or 0), sys.stdout, color)
+            if trace_handle:
+                trace_case_start(case, args.provider, browser_config, 0, trace_handle, False)
+            if args.provider == "mock":
+                target_result = call_mock(case, args.timeout)
+            elif args.provider == "http":
+                target_result = call_http(case, args.endpoint, headers, args.timeout)
+            elif args.provider == "browser":
+                target_result = call_browser(case, browser_config, args.headed, args.slow_mo, args.timeout)
+            else:
+                target_result = call_command(case, args.command, args.timeout)
+            if getattr(args, "trace", False):
+                trace_case_response(case, target_result, int(getattr(args, "trace_limit", 4000) or 0), sys.stdout, color)
+            if trace_handle:
+                trace_case_response(case, target_result, 0, trace_handle, False)
+                trace_handle.flush()
+            scored = score_case(case, target_result)
+            results.append(scored)
+            if args.verbose and not (getattr(args, "only_findings", False) and scored["status"] == "pass"):
+                status = str(scored["status"])
+                findings = scored.get("findings", [])
+                summary = compact_findings_summary(findings, color)
+                suffix = f"  {summary}" if summary else ""
+                print(f"{severity_label(status, color)} {scored['id']}: {status_text(status, color)} ({scored['elapsed_ms']} ms){suffix}")
+                if getattr(args, "show_findings", False):
+                    for finding in findings:
+                        print(f"  - {finding_label(finding, color)} {finding.get('check')}: {finding.get('detail')}")
+    finally:
+        if trace_handle:
+            trace_handle.close()
 
     cases_name = getattr(args, "cases_name", None) or getattr(args, "cases", "cases")
     report_path = Path(args.report) if args.report else default_report_path(args.provider, str(cases_name))
@@ -1146,26 +1165,31 @@ def render_case_input(case: dict[str, Any], provider: str, browser_config: dict[
     return "\n\n---\n\n".join(sections)
 
 
-def trace_case_start(case: dict[str, Any], provider: str, browser_config: dict[str, Any], limit: int) -> None:
+def trace_case_start(
+    case: dict[str, Any],
+    provider: str,
+    browser_config: dict[str, Any],
+    limit: int,
+    stream: Any,
+    color: bool,
+) -> None:
     case_id = case.get("id", "case")
     case_name = case.get("name", "")
-    color = use_color()
-    print(f"\n{tagged_label('TRACE', color)} {case_id} input start", flush=True)
+    print(f"\n{tagged_label('TRACE', color)} {case_id} input start", file=stream, flush=True)
     if case_name:
-        print(f"Case: {case_name}", flush=True)
-    print(f"Provider: {provider}", flush=True)
-    print(limit_trace_text(render_case_input(case, provider, browser_config), limit), flush=True)
-    print(f"{tagged_label('TRACE', color)} {case_id} input end", flush=True)
+        print(f"Case: {case_name}", file=stream, flush=True)
+    print(f"Provider: {provider}", file=stream, flush=True)
+    print(limit_trace_text(render_case_input(case, provider, browser_config), limit), file=stream, flush=True)
+    print(f"{tagged_label('TRACE', color)} {case_id} input end", file=stream, flush=True)
 
 
-def trace_case_response(case: dict[str, Any], result: TargetResult, limit: int) -> None:
+def trace_case_response(case: dict[str, Any], result: TargetResult, limit: int, stream: Any, color: bool) -> None:
     case_id = case.get("id", "case")
-    color = use_color()
-    print(f"{tagged_label('TRACE', color)} {case_id} response start", flush=True)
+    print(f"{tagged_label('TRACE', color)} {case_id} response start", file=stream, flush=True)
     if result.error:
-        print(f"{tagged_label('WARN', color)} Target error: {result.error}", flush=True)
-    print(limit_trace_text(result.text or "", limit), flush=True)
-    print(f"{tagged_label('TRACE', color)} {case_id} response end\n", flush=True)
+        print(f"{tagged_label('WARN', color)} Target error: {result.error}", file=stream, flush=True)
+    print(limit_trace_text(result.text or "", limit), file=stream, flush=True)
+    print(f"{tagged_label('TRACE', color)} {case_id} response end\n", file=stream, flush=True)
 
 
 def claude_code_command(args: argparse.Namespace) -> str:
@@ -1201,6 +1225,7 @@ def run_claude_code(args: argparse.Namespace) -> int:
         only_findings=args.only_findings,
         trace=args.trace,
         trace_limit=args.trace_limit,
+        trace_file=args.trace_file,
         cases_name=f"claude-code_{args.suite}{'_mutations' if args.mutations else ''}",
     )
     return run_cases(run_args, cases)
